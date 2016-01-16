@@ -1,0 +1,10 @@
+# Ignore bin and obj directories
+
+bin/
+obj/
+
+# Ignore local data
+
+*.suo
+*.user
+Config.cs
