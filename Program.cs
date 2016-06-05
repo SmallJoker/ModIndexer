@@ -103,7 +103,7 @@ namespace ModIndexer
 		System.Text.Encoding enc = System.Text.Encoding.UTF8;
 		List<ForumData> update_data;
 		WebClient cli = new WebClient();
-		
+
 		bool fetch_topics;
 
 		public Engine(int forum, string start, string stop, bool _fetch_topics)
@@ -154,7 +154,7 @@ namespace ModIndexer
 				cert.Subject,
 				error.ToString());
 
-			return false;
+			return true;
 		}
 
 		// Download page and convert to a HtmlNode object
@@ -261,10 +261,11 @@ namespace ModIndexer
 					case 13: type = 5; break; // is old
 					}
 					#endregion
-					title = specCharsToHex(removeTrash(title));
+					string mod_name = null;
+					title = specCharsToHex(removeTrash(title, out mod_name));
 					string download = "";
 					if (fetch_topics && type != 5) {
-						bool is_git = getLink(topicId, ref download);
+						bool is_git = getLink(topicId, author, mod_name, ref download);
 						if (!(type <= 2 || type == 6 || is_git))
 							download = null;
 					}
@@ -278,7 +279,7 @@ namespace ModIndexer
 		}
 
 		// Analyze topic contents and get link
-		bool getLink(int topicId, ref string link)
+		bool getLink(int topicId, string author, string mod_name, ref string link)
 		{
 			Console.WriteLine("=== Topic " + topicId);
 			Thread.Sleep(200);
@@ -296,8 +297,11 @@ namespace ModIndexer
 				return false;
 
 			string download = "", source = "";
+			int forum_download = 0;
+
 			foreach (HtmlNode dtNode in content) {
 				string url = dtNode.GetAttributeValue("href", "");
+				string text = dtNode.InnerText;
 
 				if (url.EndsWith(".git")) {
 					source = url;
@@ -307,7 +311,25 @@ namespace ModIndexer
 					url = url.Remove(url.Length - 1);
 				}
 
-				if (url.Contains(".zip") ||
+				if (url.StartsWith("./download/file.php?id=")) {
+					int pos = 23;
+					int number = 0;
+					while (pos < url.Length) {
+						char cur = url[pos];
+						if (cur < 48 || cur > 57)
+							break;
+
+						number = number * 10 + (cur - 48);
+						pos++;
+					}
+
+					string text_lower = text.ToLower().Replace('-', '_');
+					if (text_lower.Contains(mod_name) && 
+							number > forum_download) {
+
+						forum_download = number;
+					}
+				} else if (url.Contains(".zip") ||
 					url.Contains("/zipball/") ||
 					url.Contains("/tarball/") ||
 					url.Contains("/archive/") ||
@@ -323,15 +345,20 @@ namespace ModIndexer
 							pos = 0;
 						for (byte i = 0; i < url.Length; i++) {
 							if (url[i] == '/') {
-								if (count == 4) {
+								if (count == 4)
 									pos = i;
-								}
+								
 								count++;
 							}
 						}
 						if (count == 6) {
 							source = url.Substring(0, pos);
-							break;
+
+							// Try to find another link if it's not contained in the name
+							string src_lower = source.ToLower().Replace('-', '_');
+							if (src_lower.Contains(mod_name) || 
+									(src_lower.Contains(author.ToLower()) && source == ""))
+								break;
 						}
 					}
 					if (download == "")
@@ -362,13 +389,22 @@ namespace ModIndexer
 						source = url.Substring(0, pos);
 					else
 						source = url;
-					break;
+
+					string src_lower = source.ToLower().Replace('-', '_');
+					if (src_lower.Contains(mod_name) || 
+							(src_lower.Contains(author.ToLower()) && source == ""))
+						break;
 				}
 			}
-			if (source == "" && download == "")
+			if (source == "" && 
+				download == "" && 
+				forum_download == 0)
 				return false;
 
 			link = source != "" ? source : download;
+
+			if (link == "" && forum_download > 0)
+				link = "https://forum.minetest.net/download/file.php?id=" + forum_download;
 			return source != "";
 		}
 
@@ -406,14 +442,16 @@ namespace ModIndexer
 			}
 			if (index < t.Length)
 				Array.Resize(ref ret, index);
-			
+
 			return new string(ret);
 		}
 
 		// Remove useless tags from the forum titles
 		string bad_chars = ". !?";
-		string removeTrash(string t)
+		string[] bad_prefix = { "minetest", "mod", "mods" };
+		string removeTrash(string t, out string mod_name)
 		{
+			mod_name = "<unknown>";
 			string raw = t;
 			int pos = -1,
 				open_pos = 0;
@@ -439,9 +477,26 @@ namespace ModIndexer
 					if (delete || (num != 0xC0FFEE && is_number)
 						|| content == "git"
 						|| content == "github"
-						|| content == "wip") {
+						|| content == "wip"
+						|| content == "beta") {
 						raw = raw.Remove(open_pos, len);
 						pos -= len;
+					} else {
+						content = content.ToLower().Replace('-', '_');
+						int start_substr = 0;
+
+						foreach (string prefix in bad_prefix) {
+							if (content.Length <= start_substr + prefix.Length + 1)
+								break;
+
+							if (content.Substring(start_substr, prefix.Length) == prefix)
+								start_substr += prefix.Length;
+							
+							if (content[start_substr] == '_')
+								start_substr++;
+						}
+						
+						mod_name = content.Substring(start_substr);
 					}
 					delete = false;
 					continue;
@@ -475,14 +530,14 @@ namespace ModIndexer
 
 			return new string(ret);
 		}
-		
+
 		// Convert special characters to HTML code
 		string specCharsToHex(string t)
 		{
 			char[] fromCr = { '"', '\'', '\\', '{', '}', '|', '%', ':', '<', '>' };
 			string[] toStr = { "&quot;", "&#39;", "&#92;", "&#123;", "&#125;", "&#124;", "&#37;", "&#58;", "&lt;", "&gt;" };
 			System.Text.StringBuilder sb = new System.Text.StringBuilder();
-			
+
 			bool wasSpace = false;
 			for (int i = 0; i < t.Length; i++) {
 				bool isSpace = (t[i] == ' ');
