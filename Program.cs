@@ -363,8 +363,9 @@ namespace ModIndexer
 					}
 					if (download == "")
 						download = url;
-				} else if (url.Contains("://github.com/") ||
-						url.Contains("://notabug.org/")) {
+				} else if (url.Contains("://github.com/")
+						|| url.Contains("://notabug.org/")
+						|| url.Contains("://bitbucket.org/")) {
 					if (url.Contains("/minetest/minetest") ||
 						url.Contains("/commits"))
 						continue;
@@ -374,7 +375,7 @@ namespace ModIndexer
 					for (byte i = 0; i < url.Length; i++) {
 						if (url[i] == '/') {
 							if (count == 4) {
-								// If it's too long
+								// If it's too long, cut it off
 								pos = i;
 							}
 							count++;
