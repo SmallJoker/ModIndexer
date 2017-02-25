@@ -260,11 +260,11 @@ namespace ModIndexer
 				case "subgame":
 					switch (forum) {
 					case Misc.FETCH_TYPE.REL_GAMES:
-						type = Misc.DATA_TYPE.REL_MP;
+						type = Misc.DATA_TYPE.REL_GAME;
 						break;
 					case Misc.FETCH_TYPE.WIP_GAMES:
 					case Misc.FETCH_TYPE.WIP_MODS:
-						type = Misc.DATA_TYPE.WIP_MP;
+						type = Misc.DATA_TYPE.WIP_GAME;
 						break;
 					/*case Misc.FETCH_TYPE.OLD_GAMES:
 						type = Misc.DATA_TYPE.OLD_GAME;   // TODO
@@ -449,9 +449,9 @@ namespace ModIndexer
 		// Remove useless tags from the forum titles
 		const string MODNAME_ALLOWED_CHARS = "abcdefghijklmnopqrstuvwxyz0123456789_-";
 		// Content of [tags]
-		string[] bad_content = { "wip", "beta" };
-		// Beginnings of [tags]
-		string[] bad_prefix = { "minetest", "mod", "mods", "git" };
+		string[] bad_content = { "wip", "beta", "test", "code", "indev", "git", "github" };
+		// Beginnings of [mod-my_doors5] for wrong formatted titles
+		string[] bad_prefix = { "minetest", "mod", "mods" };
 		// [tags] to identify a mod
 		string[] identifiers = { "mod", "modpack", "game" };
 

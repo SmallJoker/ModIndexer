@@ -10,7 +10,7 @@ namespace ModIndexer
 		{
 			REL_MODS  = 11,
 			WIP_MODS  =  9,
-			REL_GAMES = 16,
+			REL_GAMES = 15,
 			WIP_GAMES = 50,
 			OLD_MODS  = 13
 		}
