@@ -18,17 +18,18 @@ namespace ModIndexer
 					"\n\t2) WIP mods       [full]" +
 					"\n\t3) Released games [full]" +
 					"\n\t4) WIP games      [full]" +
-					"\n\t5) Old mods       [fast]" +
-					"\n\t6) Exit" +
+					"\n\t5) Client mods    [full]" +
+					"\n\t6) Old mods       [fast]" +
+					"\n\t7) Exit" +
 					"\n\nYour choice: ");
 
 			ConsoleKeyInfo k = new ConsoleKeyInfo();
 			while (k.Key < ConsoleKey.D1 ||
-					k.Key > ConsoleKey.D6) {
+					k.Key > ConsoleKey.D7) {
 
 				k = Console.ReadKey(true);
 
-				if (k.Key == ConsoleKey.D6)
+				if (k.Key == ConsoleKey.D7)
 					return;
 			}
 			Console.WriteLine(k.KeyChar + "\n");
@@ -49,6 +50,9 @@ namespace ModIndexer
 				forum = Misc.FETCH_TYPE.WIP_GAMES;
 				break;
 			case ConsoleKey.D5:
+				forum = Misc.FETCH_TYPE.CSM_MODS;
+				break;
+			case ConsoleKey.D6:
 				forum = Misc.FETCH_TYPE.OLD_MODS;
 				break;
 			default:
@@ -215,18 +219,15 @@ namespace ModIndexer
 					goto flip;
 
 				#region filter
-				Misc.DATA_TYPE type = Misc.DATA_TYPE.INVALID;
+				Misc.DATA_TYPE type;
+				string mod_name;
+				title = parseTitle(title, out mod_name, out type);
 
-				string mod_name,
-					mod_tag;
-				title = parseTitle(title, out mod_name, out mod_tag);
-
-				switch (mod_tag) {
-				case "mod":
-				case "old mod":
+				switch (type) {
+				case Misc.DATA_TYPE.REL_MOD:
 					switch (forum) {
 					case Misc.FETCH_TYPE.REL_MODS:
-						type = Misc.DATA_TYPE.REL_MOD;
+						// Ok.
 						break;
 					case Misc.FETCH_TYPE.WIP_MODS:
 						type = Misc.DATA_TYPE.WIP_GAME;
@@ -239,11 +240,10 @@ namespace ModIndexer
 						break;
 					}
 					break;
-				case "modpack":
-				case "old modpack":
+				case Misc.DATA_TYPE.REL_MP:
 					switch (forum) {
 					case Misc.FETCH_TYPE.REL_MODS:
-						type = Misc.DATA_TYPE.REL_MP;
+						// Ok.
 						break;
 					case Misc.FETCH_TYPE.WIP_MODS:
 						type = Misc.DATA_TYPE.WIP_MP;
@@ -256,21 +256,37 @@ namespace ModIndexer
 						break;
 					}
 					break;
-				case "game":
-				case "subgame":
+				case Misc.DATA_TYPE.REL_GAME:
 					switch (forum) {
 					case Misc.FETCH_TYPE.REL_GAMES:
-						type = Misc.DATA_TYPE.REL_GAME;
+						// Ok.
 						break;
 					case Misc.FETCH_TYPE.WIP_GAMES:
 					case Misc.FETCH_TYPE.WIP_MODS:
 						type = Misc.DATA_TYPE.WIP_GAME;
 						break;
-					/*case Misc.FETCH_TYPE.OLD_GAMES:
-						type = Misc.DATA_TYPE.OLD_GAME;   // TODO
-						break;*/
+					//case Misc.FETCH_TYPE.OLD_GAMES: // TODO
+					case Misc.FETCH_TYPE.OLD_MODS:
+						type = Misc.DATA_TYPE.OLD_MOD;   
+						break;
 					default:
 						Console.WriteLine("INFO: Found a subgame in the wrong place");
+						break;
+					}
+					break;
+				case Misc.DATA_TYPE.REL_CSM:
+					switch (forum) {
+					case Misc.FETCH_TYPE.CSM_MODS:
+						// Ok.
+						break;
+					case Misc.FETCH_TYPE.WIP_MODS:
+						type = Misc.DATA_TYPE.WIP_CSM;
+						break;
+					case Misc.FETCH_TYPE.OLD_MODS:
+						type = Misc.DATA_TYPE.OLD_MOD;
+						break;
+					default:
+						Console.WriteLine("INFO: Found a CSM in the wrong place");
 						break;
 					}
 					break;
@@ -452,12 +468,10 @@ namespace ModIndexer
 		string[] bad_content = { "wip", "beta", "test", "code", "indev", "git", "github" };
 		// Beginnings of [mod-my_doors5] for wrong formatted titles
 		string[] bad_prefix = { "minetest", "mod", "mods" };
-		// [tags] to identify a mod
-		string[] identifiers = { "mod", "modpack", "game" };
 
-		string parseTitle(string title, out string mod_name, out string mod_tag)
+		string parseTitle(string title, out string mod_name, out Misc.DATA_TYPE mod_tag)
 		{
-			mod_tag = "";
+			mod_tag = Misc.DATA_TYPE.INVALID;
 			mod_name = "";
 
 			string raw = title;
@@ -482,17 +496,18 @@ namespace ModIndexer
 					string content = raw.Substring(open_pos + 1, len - 2).ToLower().Trim();
 					double num = 0.0f;
 					bool is_number = double.TryParse(content, out num);
+					Misc.DATA_TYPE tag = Misc.getDataType(content);
 
-					if (!is_number && mod_tag == ""
-							&& identifiers.IndexOf(content) != -1) {
+					if (!is_number && mod_tag == Misc.DATA_TYPE.INVALID
+							&& tag != Misc.DATA_TYPE.INVALID) {
 						// Mod tag detected
-						mod_tag = content;
+						mod_tag = tag;
 						delete = true;
 					}
 
 					if (delete || is_number
 							|| bad_content.IndexOf(content) != -1
-							|| identifiers.IndexOf(content) != -1) {
+							|| tag != Misc.DATA_TYPE.INVALID) {
 
 						// Remove this tag
 						raw = raw.Remove(open_pos, len);
@@ -521,12 +536,8 @@ namespace ModIndexer
 					} else {
 						// Replace this tag with the proper name
 						mod_name = content.Substring(start_substr);
-						raw = raw.Remove(open_pos, len);
-						pos -= len;
-
-						string to_insert = "[" + mod_name + "]";
-						raw.Insert(pos, to_insert);
-						pos += to_insert.Length;
+						raw = raw.Remove(open_pos + 1, start_substr);
+						pos -= start_substr;
 					}
 
 					delete = false;

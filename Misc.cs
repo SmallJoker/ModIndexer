@@ -12,7 +12,8 @@ namespace ModIndexer
 			WIP_MODS  =  9,
 			REL_GAMES = 15,
 			WIP_GAMES = 50,
-			OLD_MODS  = 13
+			OLD_MODS  = 13,
+			CSM_MODS  = 53
 		}
 
 		// The number in the database for the type
@@ -25,7 +26,28 @@ namespace ModIndexer
 			WIP_MP   = 4,
 			OLD_MOD  = 5,
 			REL_GAME = 6,
-			WIP_GAME = 7
+			WIP_GAME = 7,
+			REL_CSM  = 8,
+			WIP_CSM  = 9
+		}
+
+		public static DATA_TYPE getDataType(string text)
+		{
+			switch (text.ToLower()) {
+			case "mod": return DATA_TYPE.REL_MOD;
+			case "mod pack":
+			case "modpack": return DATA_TYPE.REL_MP;
+			case "game": return DATA_TYPE.REL_GAME;
+			case "csm":
+			case "clientmod":
+			case "client mod": return DATA_TYPE.REL_CSM;
+			case "old clientmod":  // TODO
+			case "old client mod": // TODO
+			case "old modpack":    // TODO
+			case "old mod pack":   // TODO
+			case "old mod": return DATA_TYPE.OLD_MOD;
+			}
+			return DATA_TYPE.INVALID;
 		}
 
 		// Convert special characters to HTML code
