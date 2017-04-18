@@ -230,7 +230,7 @@ namespace ModIndexer
 						// Ok.
 						break;
 					case Misc.FETCH_TYPE.WIP_MODS:
-						type = Misc.DATA_TYPE.WIP_GAME;
+						type = Misc.DATA_TYPE.WIP_MOD;
 						break;
 					case Misc.FETCH_TYPE.OLD_MODS:
 						type = Misc.DATA_TYPE.OLD_MOD;
