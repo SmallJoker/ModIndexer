@@ -40,7 +40,8 @@ namespace ModIndexer
 			case "game": return DATA_TYPE.REL_GAME;
 			case "csm":
 			case "clientmod":
-			case "client mod": return DATA_TYPE.REL_CSM;
+			case "client mod":
+			case "(client)mod": return DATA_TYPE.REL_CSM;
 			case "old clientmod":  // TODO
 			case "old client mod": // TODO
 			case "old modpack":    // TODO
