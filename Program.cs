@@ -136,7 +136,16 @@ namespace ModIndexer
 		// Download page and convert to a HtmlNode object
 		HtmlNodeCollection OpenPage(string url, string nodes)
 		{
-			string text = enc.GetString(cli.DownloadData(url));
+			string text = "";
+			while (text == "") {
+				try {
+					text = enc.GetString(cli.DownloadData(url));
+				} catch {
+					// Probably the web stuff threw an error
+					Console.WriteLine("Downloading/converting failed: " + url);
+					text = "";
+				}
+			}
 
 			HtmlDocument htmlDoc = new HtmlAgilityPack.HtmlDocument();
 			htmlDoc.LoadHtml(text);
@@ -325,8 +334,6 @@ namespace ModIndexer
 			}
 		}
 
-		const int PRIORITY_WORST = 0xFFFF;
-
 		// Analyze topic contents and get link
 		void FetchSingleTopic(string mod_name, ref ForumData info)
 		{
@@ -354,7 +361,7 @@ namespace ModIndexer
 			}
 
 			string link = "";
-			int uglyness = PRIORITY_WORST - 10;
+			int quality = 0; // 0 to 10
 
 			foreach (HtmlNode dtNode in content) {
 				string url_raw = dtNode.GetAttributeValue("href", "");
@@ -366,17 +373,18 @@ namespace ModIndexer
 				string url_new;
 				int priority = checkLinkPattern(url_raw, out url_new);
 
+				// Weight the link to find the best matching
 				string lower = url_new.ToLower().Replace('-', '_');
 				if (lower.Contains(mod_name))
-					uglyness -= 3;
+					priority += 3;
 				if (lower.Contains(info.userName.ToLower()))
-					uglyness--;
+					priority++;
 
-				if (priority < uglyness) {
+				if (priority > quality) {
 					if (isLinkAvailable(ref url_new)) {
 						// Best link so far. Take it.
 						link = url_new;
-						uglyness = priority;
+						quality = priority;
 					}
 				}
 			}
@@ -387,23 +395,21 @@ namespace ModIndexer
 
 		int checkLinkPattern(string url_raw, out string url_new)
 		{
-			const string github = "|/archive/*"; // also for notabug.org
-			const string gitlab = "|/repository/*";
-			const string bitbucket = "|/get/*|/downloads/*";
-
-			// Sort by priority for link quality, where 0 = highest
 			string[] patterns = {
-				// Similar formatted git
-				@"^(https?:/(/[\w_.-]*){3})(/?$|\.git$" + github + gitlab + bitbucket + ")",
+				// GitHub & Notabug
+				@"^(https?://(www\.)?(github\.com|notabug\.org)(/[\w_.-]*){2})(/?$|\.git$|/archive/*)",
+				// GitLab
+				@"^(https?://(www\.)?gitlab\.com(/[\w_.-]*){2})(/?$|\.git$|/repository/*)",
+				// BitBucket
+				@"^(https?://(www\.)?bitbucket.org(/[\w_.-]*){2})(/?$|\.git$|/get/*|/downloads/*)",
 				// repo.or.cz
-				@"^(https?://repo\.or\.cz/[\w_.-]*\.git)(/?$|/snapshot/*)",
-				// Forum absolute link
-				@"^(https?://forum\.minetest\.net/download/file.php\?id=\d*)$"
+				@"^(https?://repo\.or\.cz/[\w_.-]*\.git)(/?$|/snapshot/*)"
 			};
 
 			// Convert attachment links to proper ones
-			if (url_raw.StartsWith("./download/file.php?id="))
-				url_raw = url_raw.Replace(".", "https://forum.minetest.net");
+			// Ignore forum attachments. They're evil and hard to check.
+			//if (url_raw.StartsWith("./download/file.php?id="))
+			//	url_raw = url_raw.Replace(".", "https://forum.minetest.net");
 
 			for (int p = 0; p < patterns.Length; p++) {
 				var reg1 = new System.Text.RegularExpressions.Regex(patterns[p]);
@@ -414,10 +420,10 @@ namespace ModIndexer
 
 				// This one matches
 				url_new = match.Groups[1].ToString();
-				return p * 10;
+				return 10;
 			}
 			url_new = url_raw;
-			return PRIORITY_WORST; // None matches
+			return -10; // None matches
 		}
 
 		bool isLinkAvailable(ref string url)
