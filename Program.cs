@@ -85,7 +85,6 @@ namespace ModIndexer
 
 			update_data = new List<ForumData>();
 			ServicePointManager.ServerCertificateValidationCallback += ValidateRemoteCertificate;
-
 			int begin, end;
 			if (!int.TryParse(start, out begin))
 				begin = 1;
@@ -101,10 +100,10 @@ namespace ModIndexer
 			try {
 				int[] topics = JsonConvert.DeserializeObject<int[]>(enc.GetString(answer));
 
-				for (int i = 0; i < topics.Length; i++) {
-					foreach (ForumData d in update_data) {
+				foreach (ForumData d in update_data) {
+					for (int i = 0; i < topics.Length; i++) {
 						if (d.topicId == topics[i]) {
-							Console.WriteLine("\t" + d.title);
+							Console.WriteLine((d.type == 0 ? "RM\t" : "\t") + d.title);
 							break;
 						}
 					}
@@ -291,18 +290,20 @@ namespace ModIndexer
 					}
 					break;
 				}
-
-				if (type == Misc.DATA_TYPE.INVALID) {
-					Console.WriteLine("INFO: Don't know where to put this mod:" +
-						"\n\t(ID) Title: ({0}) {1}", topicId, title);
-					goto flip;
-				}
 				#endregion
 
-				string download = "";
-				if (forum != Misc.FETCH_TYPE.OLD_MODS) {
+				ForumData info = new ForumData(
+					topicId,
+					title.EscapeXML(),
+					(int)type,
+					authorId,
+					author,
+					"" // Yet unknown
+				);
+
+				if (type != Misc.DATA_TYPE.INVALID && forum != Misc.FETCH_TYPE.OLD_MODS) {
 					// Fetch topics, get download/source links
-					bool is_git = FetchSingleTopic(topicId, author, mod_name, ref download);
+					FetchSingleTopic(mod_name, ref info);
 
 					// TODO: Find an use for is_git
 				}
@@ -312,14 +313,7 @@ namespace ModIndexer
 					"\n\tLink: " + download +
 					"\n\tType: " + (int)type + " " + type.ToString());*/
 
-				update_data.Add(new ForumData(
-					topicId,
-					title.EscapeXML(),
-					(int)type,
-					authorId,
-					author,
-					download
-				));
+				update_data.Add(info);
 
 				// Empty for next fetch
 				author = "";
@@ -331,135 +325,140 @@ namespace ModIndexer
 			}
 		}
 
-		// Analyze topic contents and get link
-		bool FetchSingleTopic(int topicId, string author, string mod_name, ref string link)
-		{
-			Console.WriteLine("=== Topic " + topicId);
-			Thread.Sleep(200);
-			link = "";
+		const int PRIORITY_WORST = 0xFFFF;
 
-			HtmlNodeCollection bodyNode = OpenPage(
-				"https://forum.minetest.net/viewtopic.php?t=" + topicId,
-				"//div[@class='content']");
+		// Analyze topic contents and get link
+		void FetchSingleTopic(string mod_name, ref ForumData info)
+		{
+			Console.WriteLine("=== Topic " + info.topicId);
+			Thread.Sleep(200);
+
+			HtmlNodeCollection bodyNode =
+				OpenPage(
+					"https://forum.minetest.net/viewtopic.php?t=" + info.topicId,
+					"//div[@class='content']"
+				);
 
 			if (bodyNode == null)
-				return false;
+				return;
+
 			HtmlNodeCollection content = bodyNode[0].SelectNodes(".//a[@class='postlink']");
 
-			if (content == null)
-				return false;
+			if (content == null) {
+				Console.WriteLine("\tNo download links embedded.");
+				// Topic is dead. Remove mod.
+				info.type = (int)Misc.DATA_TYPE.INVALID;
+				return;
+			}
 
-			string download = "", source = "";
-			int forum_download = 0;
+			string link = "";
+			int uglyness = PRIORITY_WORST;
 
 			foreach (HtmlNode dtNode in content) {
-				string url = dtNode.GetAttributeValue("href", "");
+				string url_raw = dtNode.GetAttributeValue("href", "");
 				string text = dtNode.InnerText;
 
-				if (url.EndsWith(".git")) {
-					source = url;
-					continue;
-				}
-				if (url[url.Length - 1] == '/') {
-					url = url.Remove(url.Length - 1);
-				}
+				if (url_raw[url_raw.Length - 1] == '/')
+					url_raw = url_raw.Remove(url_raw.Length - 1);
 
-				if (url.StartsWith("./download/file.php?id=")) {
-					int pos = 23;
-					int number = 0;
-					while (pos < url.Length) {
-						char cur = url[pos];
-						if (cur < 48 || cur > 57)
-							break;
+				string url_new;
+				int priority = checkLinkPattern(url_raw, out url_new);
 
-						number = number * 10 + (cur - 48);
-						pos++;
+				string lower = url_new.ToLower().Replace('-', '_');
+				if (lower.Contains(mod_name))
+					uglyness -= 3;
+				if (lower.Contains(info.userName.ToLower()))
+					uglyness--;
+
+				if (priority < uglyness) {
+					if (isLinkAvailable(ref url_new)) {
+						// Best link so far. Take it.
+						link = url_new;
+						uglyness = priority;
 					}
-
-					string text_lower = text.ToLower().Replace('-', '_');
-					if (text_lower.Contains(mod_name) &&
-							number > forum_download) {
-
-						forum_download = number;
-					}
-				} else if (url.Contains(".zip") ||
-					url.Contains("/zipball/") ||
-					url.Contains("/tarball/") ||
-					url.Contains("/archive/") ||
-					url.Contains("mediafire.com/")) {
-					// Direct download link
-
-					if (url.Contains("://ompldr.org"))
-						continue;
-
-					bool contains_git = url.Contains("git");
-					if (contains_git) {
-						byte count = 0,
-							pos = 0;
-						for (byte i = 0; i < url.Length; i++) {
-							if (url[i] == '/') {
-								if (count == 4)
-									pos = i;
-
-								count++;
-							}
-						}
-						if (count == 6) {
-							source = url.Substring(0, pos);
-
-							// Try to find another link if it's not contained in the name
-							string src_lower = source.ToLower().Replace('-', '_');
-							if (src_lower.Contains(mod_name) ||
-									(src_lower.Contains(author.ToLower()) && source == ""))
-								break;
-						}
-					}
-					if (download == "")
-						download = url;
-				} else if (url.Contains("://github.com/")
-						|| url.Contains("://notabug.org/")
-						|| url.Contains("://bitbucket.org/")) {
-					if (url.Contains("/minetest/minetest") ||
-						url.Contains("/commits"))
-						continue;
-
-					byte count = 0,
-						pos = 0;
-					for (byte i = 0; i < url.Length; i++) {
-						if (url[i] == '/') {
-							if (count == 4) {
-								// If it's too long, cut it off
-								pos = i;
-							}
-							count++;
-						}
-					}
-					if (count < 4 || count > 5)
-						continue;
-
-					// url.EndsWith("/tree") || url.EndsWith("/master")
-					// //github/user/proj/master
-					if (count == 5)
-						source = url.Substring(0, pos);
-					else
-						source = url;
-
-					string src_lower = source.ToLower().Replace('-', '_');
-					if (src_lower.Contains(mod_name) ||
-							(src_lower.Contains(author.ToLower()) && source == ""))
-						break;
 				}
 			}
-			if (source == "" &&
-				download == "" &&
-				forum_download == 0)
-				return false;
 
-			link = source != "" ? source : download;
+			// Can't be worse than empty
+			info.link = link;
+		}
 
-			if (link == "" && forum_download > 0)
-				link = "https://forum.minetest.net/download/file.php?id=" + forum_download;
-			return source != "";
+		int checkLinkPattern(string url_raw, out string url_new)
+		{
+			const string github = "|/archive/*"; // also for notabug.org
+			const string gitlab = "|/repository/*";
+			const string bitbucket = "|/get/*|/downloads/*";
+
+			// Sort by priority for link quality, where 0 = highest
+			string[] patterns = {
+				// Similar formatted git
+				@"^(https?:/(/[\w_.-]*){3})(/?$|\.git$" + github + gitlab + bitbucket + ")",
+				// repo.or.cz
+				@"^(https?://repo\.or\.cz/[\w_.-]*\.git)(/?$|/snapshot/*)",
+				// Forum absolute link
+				@"^(https?://forum\.minetest\.net/download/file.php\?id=\d*)$"
+			};
+
+			// Convert attachment links to proper ones
+			if (url_raw.StartsWith("./download/file.php?id="))
+				url_raw = url_raw.Replace(".", "https://forum.minetest.net");
+
+			for (int p = 0; p < patterns.Length; p++) {
+				var reg1 = new System.Text.RegularExpressions.Regex(patterns[p]);
+				var match = reg1.Match(url_raw);
+
+				if (match.Value == "")
+					continue;
+
+				// This one matches
+				url_new = match.Groups[1].ToString();
+				return p * 10;
+			}
+			url_new = url_raw;
+			return PRIORITY_WORST; // None matches
+		}
+
+		bool isLinkAvailable(ref string url)
+		{
+			// We need TLS 1.2 for GitHub but Mono doesn't support that yet
+			// Use curl instead and hope the servers support HEAD requests
+
+			var proc_info = new System.Diagnostics.ProcessStartInfo();
+			proc_info.FileName = "curl";
+			proc_info.Arguments = "-L -I " + url;
+			proc_info.UseShellExecute = false;
+			proc_info.RedirectStandardOutput = true;
+			proc_info.RedirectStandardError = true;
+			var curl = System.Diagnostics.Process.Start(proc_info);
+			Thread.Sleep(100);
+
+			bool was_empty = true;
+			int status = 404;
+
+			while (!curl.StandardOutput.EndOfStream) {
+				string line = curl.StandardOutput.ReadLine();
+				// Get the line after the last blank one
+				if (line == "") {
+					was_empty = true;
+					continue;
+				}
+
+				if (!was_empty) {
+					// Look out for "Location: " and get the correct URL
+					if (line.StartsWith("Location: "))
+						url = line.Substring(10);
+					continue;
+				}
+
+				was_empty = false;
+				string[] parts = line.Split(' ');
+				if (parts.Length < 3)
+					continue; // This should not happen
+
+				int.TryParse(parts[1], out status);
+			}
+
+			return status == 200;
 		}
 
 		// Remove useless tags from the forum titles
