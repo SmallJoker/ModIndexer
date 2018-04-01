@@ -339,20 +339,22 @@ namespace ModIndexer
 					"//div[@class='content']"
 				);
 
-			if (bodyNode == null)
+			if (bodyNode == null) {
+				// Topic is dead. Remove mod.
+				info.type = (int)Misc.DATA_TYPE.INVALID;
+				Console.WriteLine("\tDead mod: " + mod_name);
 				return;
+			}
 
 			HtmlNodeCollection content = bodyNode[0].SelectNodes(".//a[@class='postlink']");
 
 			if (content == null) {
 				Console.WriteLine("\tNo download links embedded.");
-				// Topic is dead. Remove mod.
-				info.type = (int)Misc.DATA_TYPE.INVALID;
 				return;
 			}
 
 			string link = "";
-			int uglyness = PRIORITY_WORST;
+			int uglyness = PRIORITY_WORST - 10;
 
 			foreach (HtmlNode dtNode in content) {
 				string url_raw = dtNode.GetAttributeValue("href", "");
@@ -425,7 +427,7 @@ namespace ModIndexer
 
 			var proc_info = new System.Diagnostics.ProcessStartInfo();
 			proc_info.FileName = "curl";
-			proc_info.Arguments = "-L -I " + url;
+			proc_info.Arguments = "-m 10 --connect-timeout 10 -L -I " + url;
 			proc_info.UseShellExecute = false;
 			proc_info.RedirectStandardOutput = true;
 			proc_info.RedirectStandardError = true;
