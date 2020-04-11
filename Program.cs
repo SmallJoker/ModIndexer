@@ -110,7 +110,8 @@ namespace ModIndexer
 				}
 			} catch (Exception e) {
 				Console.WriteLine(e.ToString());
-				//Console.WriteLine(enc.GetString(answer));
+				Console.WriteLine("=============");
+				Console.WriteLine(enc.GetString(answer));
 			}
 
 			Console.WriteLine("Done.");
@@ -317,9 +318,9 @@ namespace ModIndexer
 					// TODO: Find an use for is_git
 				}
 
-				/*Console.WriteLine("Found mod: " + mod_name + 
-					"\n\tTag: " + mod_tag +
-					"\n\tLink: " + download +
+				/*Console.WriteLine("Found mod: " +
+					"\n\tTitle: " + info.title +
+					"\n\tLink: " + info.link +
 					"\n\tType: " + (int)type + " " + type.ToString());*/
 
 				update_data.Add(info);
@@ -397,13 +398,17 @@ namespace ModIndexer
 		{
 			string[] patterns = {
 				// GitHub & Notabug
-				@"^(https?://(www\.)?(github\.com|notabug\.org)(/[\w_.-]*){2})(/?$|\.git$|/archive/*)",
+				@"^(https?://(www\.)?(github\.com|notabug\.org)(/[\w_.-]*){2})(/?$|\.git$|/archive/*|/zipball/*)",
 				// GitLab
 				@"^(https?://(www\.)?gitlab\.com(/[\w_.-]*){2})(/?$|\.git$|/repository/*)",
 				// BitBucket
 				@"^(https?://(www\.)?bitbucket.org(/[\w_.-]*){2})(/?$|\.git$|/get/*|/downloads/*)",
 				// repo.or.cz
-				@"^(https?://repo\.or\.cz/[\w_.-]*\.git)(/?$|/snapshot/*)"
+				@"^(https?://repo\.or\.cz/[\w_.-]*\.git)(/?$|/snapshot/*)",
+				// git.gpcf.eu (why can't you just be normal?)
+				@"^(https?://git\.gpcf\.eu/\?p=[\w_.-]*.git)(\;a=snapshot*)?",
+				// git.minetest.land
+				@"^(https?://git\.minetest\.land(/[\w_.-]*){2})(/?$|\.git$|/archive/*)",
 			};
 
 			// Convert attachment links to proper ones
