@@ -183,7 +183,7 @@ namespace ModIndexer
 
 			HtmlNodeCollection bodyNode = OpenPage(
 				"https://forum.minetest.net/viewforum.php?f=" + (int)forum + "&start=" + (page * 30),
-				"//ul[@class='topiclist topics']//dt/a");
+				"//ul[@class='topiclist topics']//a[@class='topictitle']");
 
 			if (bodyNode == null)
 				return;
