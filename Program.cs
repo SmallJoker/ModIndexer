@@ -1,8 +1,10 @@
-﻿using System;
+﻿//#define LOG_NO_SEND
+
+using System;
 using System.Net;
-using System.Net.Sockets;
 using System.Threading;
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 using HtmlAgilityPack;
 using Newtonsoft.Json;
 
@@ -90,10 +92,14 @@ namespace ModIndexer
 				begin = 1;
 
 			if (!int.TryParse(stop, out end))
-				end = 1;
+				end = begin;
 
-			for (int i = begin - 1; i < end; i++)
+			for (int i = begin; i <= end; i++)
 				FetchTopicList(i);
+
+#if LOG_NO_SEND
+			return;
+#endif
 
 			byte[] answer = Config.Upload(ref update_data);
 
@@ -148,7 +154,7 @@ namespace ModIndexer
 				}
 			}
 
-			HtmlDocument htmlDoc = new HtmlAgilityPack.HtmlDocument();
+			var htmlDoc = new HtmlDocument();
 			htmlDoc.LoadHtml(text);
 
 			if (htmlDoc.ParseErrors != null) {
@@ -179,53 +185,45 @@ namespace ModIndexer
 		void FetchTopicList(int page)
 		{
 			Console.WriteLine("=== Forum {0} ({1}) - Page {2}",
-				forum.ToString(), (int)forum, page + 1);
+				forum.ToString(), (int)forum, page);
 
 			HtmlNodeCollection bodyNode = OpenPage(
-				"https://forum.minetest.net/viewforum.php?f=" + (int)forum + "&start=" + (page * 30),
-				"//ul[@class='topiclist topics']//a[@class='topictitle']");
+				"https://forum.minetest.net/viewforum.php?f=" + (int)forum + "&start=" + ((page - 1) * 30),
+				"//div[@class='forumbg']/.//li[contains(@class, 'row')]");
 
 			if (bodyNode == null)
 				return;
 
-			bool get_author = false;
-			string title = "",
-				author = "";
-			int topicId = 0,
-				authorId = 0;
+			var regexTopic = new Regex(@"t=(\d+)");
+			var regexAuthor = new Regex(@"u=(\d+)");
 
-			foreach (HtmlNode dtNode in bodyNode) {
-				#region extract IDs
-				string link = dtNode.GetAttributeValue("href", "");
-				link = link.Replace("&amp;", "&");
-				string[] linkArgs = link.Split('&');
+			foreach (HtmlNode modSection in bodyNode) {
+				var classInfo = modSection.GetAttributeValue("class", "");
+				// Ignore sticky posts and announcements
+				if (classInfo.Contains("sticky") || classInfo.Contains("announce"))
+					continue;
 
-				if (!get_author) {
-					for (int i = 0; i < linkArgs.Length; i++) {
-						if (linkArgs[i].Length < 3)
-							continue;
+				string title, author;
+				int topicId, authorId;
+				{
+					// Read topic title + Link
+					var titleNode = modSection.SelectSingleNode(".//a[@class='topictitle']");
+					title = titleNode.InnerText;
 
-						string first = linkArgs[i][0].ToString() + linkArgs[i][1];
-						if (first == "t=") {
-							topicId = int.Parse(linkArgs[i].Remove(0, 2));
-						}
-					}
-					title = dtNode.InnerText;
-				} else {
-					for (int i = 0; i < linkArgs.Length; i++) {
-						if (linkArgs[i].Length < 3)
-							continue;
+					string link = titleNode.GetAttributeValue("href", "");
+					topicId = int.Parse(regexTopic.Match(link).Groups[1].Value);
 
-						string first = linkArgs[i][0].ToString() + linkArgs[i][1];
-						if (first == "u=") {
-							authorId = int.Parse(linkArgs[i].Remove(0, 2));
-						}
-					}
-					author = dtNode.InnerText;
+					// Read author name and ID
+					// Links may have the class "username" or "username-colored"
+					var authorNode = modSection.SelectSingleNode(".//div[contains(@class, 'topic-poster')]/a");
+					author = authorNode.InnerText;
+
+					link = authorNode.GetAttributeValue("href", "");
+					authorId = int.Parse(regexAuthor.Match(link).Groups[1].Value);
 				}
-				#endregion
-				if (!get_author || title.Length < 10)
-					goto flip;
+
+				if (title.Length < 10)
+					continue;
 
 				#region filter
 				Misc.DATA_TYPE type;
@@ -302,6 +300,9 @@ namespace ModIndexer
 				}
 				#endregion
 
+				if (topicId == 0 || authorId == 0 || author == "")
+					throw new Exception("Invalid topic data");
+
 				ForumData info = new ForumData(
 					topicId,
 					title.EscapeXML(),
@@ -314,24 +315,16 @@ namespace ModIndexer
 				if (type != Misc.DATA_TYPE.INVALID && forum != Misc.FETCH_TYPE.OLD_MODS) {
 					// Fetch topics, get download/source links
 					FetchSingleTopic(mod_name, ref info);
-
-					// TODO: Find an use for is_git
 				}
 
-				/*Console.WriteLine("Found mod: " +
+#if LOG_NO_SEND
+				Console.WriteLine("Found mod: " +
 					"\n\tTitle: " + info.title +
 					"\n\tLink: " + info.link +
-					"\n\tType: " + (int)type + " " + type.ToString());*/
+					"\n\tType: " + (int)type + " " + type.ToString());
+#endif
 
 				update_data.Add(info);
-
-				// Empty for next fetch
-				author = "";
-				title = "";
-
-
-			flip:
-				get_author ^= true;
 			}
 		}
 
@@ -344,7 +337,7 @@ namespace ModIndexer
 			HtmlNodeCollection bodyNode =
 				OpenPage(
 					"https://forum.minetest.net/viewtopic.php?t=" + info.topicId,
-					"//div[@class='content']"
+					"//div[@class='postbody']"
 				);
 
 			if (bodyNode == null) {
@@ -367,6 +360,10 @@ namespace ModIndexer
 			foreach (HtmlNode dtNode in content) {
 				string url_raw = dtNode.GetAttributeValue("href", "");
 				string text = dtNode.InnerText;
+
+#if LOG_NO_SEND
+				Console.WriteLine("Found link: " + url_raw);
+#endif
 
 				if (url_raw[url_raw.Length - 1] == '/')
 					url_raw = url_raw.Remove(url_raw.Length - 1);
@@ -417,7 +414,7 @@ namespace ModIndexer
 			//	url_raw = url_raw.Replace(".", "https://forum.minetest.net");
 
 			for (int p = 0; p < patterns.Length; p++) {
-				var reg1 = new System.Text.RegularExpressions.Regex(patterns[p]);
+				var reg1 = new Regex(patterns[p]);
 				var match = reg1.Match(url_raw);
 
 				if (match.Value == "")
@@ -477,7 +474,7 @@ namespace ModIndexer
 		// Remove useless tags from the forum titles
 		const string MODNAME_ALLOWED_CHARS = "abcdefghijklmnopqrstuvwxyz0123456789_-";
 		// Content of [tags]
-		string[] bad_content = { "wip", "beta", "test", "code", "indev", "git", "github" };
+		string[] bad_content = { "wip", "beta", "test", "code", "indev", "git", "github", "-" };
 		// Beginnings of [mod-my_doors5] for wrong formatted titles
 		string[] bad_prefix = { "minetest", "mod", "mods" };
 
@@ -490,7 +487,7 @@ namespace ModIndexer
 			int pos = 0,
 				open_pos = 0;
 			bool opened = false,
-				delete = false;
+				delete_tag = false;
 
 			for (int i = 0; pos < raw.Length; i++, pos++) {
 				char cur = title[i];
@@ -514,17 +511,17 @@ namespace ModIndexer
 							&& tag != Misc.DATA_TYPE.INVALID) {
 						// Mod tag detected
 						mod_tag = tag;
-						delete = true;
+						delete_tag = true;
 					}
 
-					if (delete || is_number
+					if (delete_tag || is_number
 							|| bad_content.IndexOf(content) != -1
 							|| tag != Misc.DATA_TYPE.INVALID) {
 
 						// Remove this tag
 						raw = raw.Remove(open_pos, len);
 						pos -= len;
-						delete = false;
+						delete_tag = false;
 						continue;
 					}
 
@@ -552,14 +549,14 @@ namespace ModIndexer
 						pos -= start_substr;
 					}
 
-					delete = false;
+					delete_tag = false;
 				}
 				if (opened && MODNAME_ALLOWED_CHARS.IndexOf(cur) == -1) {
-					delete = true;
+					delete_tag = true;
 				}
 			}
 
-			delete = true;
+			delete_tag = true;
 			pos = 0;
 
 			// Trim double whitespaces
@@ -567,13 +564,13 @@ namespace ModIndexer
 			for (int i = 0; i < raw.Length; i++) {
 				char cur = raw[i];
 				bool is_space = char.IsWhiteSpace(cur);
-				if (delete && is_space)
+				if (delete_tag && is_space)
 					continue;
 
 				if (is_space && i == raw.Length - 1)
 					continue;
 
-				delete = is_space;
+				delete_tag = is_space;
 				ret[pos] = cur;
 				pos++;
 			}
