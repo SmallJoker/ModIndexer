@@ -2,9 +2,17 @@
 
 bin/
 obj/
+build/
+.vs/
 
 # Ignore local data
 
 *.suo
 *.user
 Config.cs
+*.sh
+
+
+*.kate-swp
+*.kdev4
+.kdev4/

@@ -361,6 +361,8 @@ namespace ModIndexer
 				string url_raw = dtNode.GetAttributeValue("href", "");
 				string text = dtNode.InnerText;
 
+				if (url_raw.Length < 4)
+					return;
 #if LOG_NO_SEND
 				Console.WriteLine("Found link: " + url_raw);
 #endif
