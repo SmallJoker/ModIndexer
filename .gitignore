@@ -10,6 +10,7 @@ build/
 *.suo
 *.user
 Config.cs
+config_url.txt
 *.sh
 
 

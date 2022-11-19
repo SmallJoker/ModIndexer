@@ -339,7 +339,12 @@ void fetch_topic_list(Subforum subforum, int page)
 			fetch_single_topic(mod_name, &topic);
 		}
 
-		// Processing is done. Add to queue-
+		// Processing is done. Add to queue.
+		if (type == DbType::INVALID) {
+			LOG("Ignored: Invalid format");
+			continue;
+		}
+
 		topic.dump(&std::cout);
 		new_topic_data.push(topic);
 	})
