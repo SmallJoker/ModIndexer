@@ -33,6 +33,7 @@ add_subdirectory("${PROJECT_SOURCE_DIR}/lib")
 set(SRC_FILES
 	${LIB_FILES}
 	main.cpp
+	stringops.cpp
 )
 
 include_directories(

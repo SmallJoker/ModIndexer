@@ -100,7 +100,8 @@ bool Connection::connect()
 	CURLcode res = curl_easy_perform(m_curl);
 
 	m_connected = (res == CURLE_OK);
-	if (!m_connected) {
+	// CURLE_PARTIAL_FILE is triggered by "HEAD" requests
+	if (!m_connected && res != CURLE_PARTIAL_FILE) {
 		ERROR("CURL failed: " << curl_easy_strerror(res));
 		return false;
 	}
@@ -146,6 +147,20 @@ bool Connection::send(cstr_t &data) const
 			SLEEP_MS(10);
 	}
 	return true;
+}
+
+long Connection::getHTTP_Status() const
+{
+	long http_code = 0;
+	curl_easy_getinfo(m_curl, CURLINFO_RESPONSE_CODE, &http_code);
+	return http_code;
+}
+
+std::string Connection::getHTTP_URL() const
+{
+	char *url = nullptr;
+	curl_easy_getinfo(m_curl, CURLINFO_EFFECTIVE_URL, &url);
+	return std::string(url);
 }
 
 std::string *Connection::popRecv()

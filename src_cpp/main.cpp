@@ -6,12 +6,25 @@
 #include <string>
 
 #include "misc.h"
+#include "stringops.h"
 #include "lib/connection.h"
 #include "lib/html.h"
 #include "lib/logger.h"
 
 std::queue<TopicData> new_topic_data;
 
+const char *DBTYPE2STR[(int)DbType::INVALID_MAX] = {
+	"invalid0",
+	"REL mod",
+	"REL modpack",
+	"WIP mod",
+	"WIP modpack",
+	"old mod",
+	"REL game",
+	"WIP game",
+	"REL CSM",
+	"WIP CSM"
+};
 
 std::string download_page(HTML &html, std::string url)
 {
@@ -30,7 +43,8 @@ std::string download_page(HTML &html, std::string url)
 		// Download from web
 		VERBOSE("Downloading " << url);
 		std::unique_ptr<Connection> con(Connection::createHTTP("GET", url));
-		con->connect();
+		if (!con->connect())
+			return "Page unreachable";
 		text_ptr = con->popAll();
 	}
 
@@ -49,119 +63,106 @@ std::string download_page(HTML &html, std::string url)
 	return "";
 }
 
-// Remove useless tags from the forum titles
-const std::string MODNAME_ALLOWED_CHARS = "abcdefghijklmnopqrstuvwxyz0123456789_";
-// Content of [tags]
-const std::vector<std::string> bad_content = { "wip", "beta", "test", "code", "indev", "git", "github", "-" };
-// Beginnings of [mod-my_doors5] for wrong formatted titles
-const std::vector<std::string> bad_prefix = { "minetest", "mod", "mods" };
-
-std::string parse_title(std::string title, std::string *mod_name, DbType *mod_tag)
+bool is_link_reachable(std::string *url)
 {
-	*mod_tag = DbType::INVALID;
-	mod_name->clear();
+	VERBOSE("Checking " << *url);
+	std::unique_ptr<Connection> con(Connection::createHTTP("HEAD", *url));
+	con->connect();
 
-	size_t pos = 0,
-		open_pos = 0;
-	bool opened = false,
-		delete_tag = false;
+	long status_code = con->getHTTP_Status();
+	*url = con->getHTTP_URL();
+	VERBOSE("status=" << status_code << ", url=" << *url);
 
-	for (; pos < title.size(); pos++) {
-		char cur = title[pos];
+	return status_code == 200;
+}
 
-		if (cur == '[' || cur == '{') {
-			opened = true;
-			open_pos = pos;
-			continue;
-		}
-		if (cur == ']' || cur == '}') {
-			// Tag closed
-			opened = false;
+// Analyze topic contents and get link
+void fetch_single_topic(cstr_t &mod_name, TopicData *data)
+{
+	LOG("=== Topic " << data->topic_id << " (" << data->title << ")");
+	sleep_ms(200);
 
-			int len = pos - open_pos + 1;
-			std::string content = strtrim(title.substr(open_pos + 1, len - 2));
-			for (char &c : content)
-				c = tolower(c);
+	std::stringstream ss;
+	ss << "https://forum.minetest.net/viewtopic.php?t=" << data->topic_id;
 
-			double num = 0.0f;
-			bool is_number = sscanf(content.c_str(), "%lf", &num);
-			DbType tag = tag_to_rel_dbtype(content);
+	HTML html;
+	std::string err = download_page(html, ss.str());
 
-			if (!is_number && *mod_tag == DbType::INVALID
-					&& tag != DbType::INVALID) {
-				// Mod tag detected
-				*mod_tag = tag;
-				delete_tag = true;
-			}
-
-			bool is_bad_content = std::find(bad_content.begin(), bad_content.end(), content) != bad_content.end();
-			if (delete_tag || is_number
-					|| is_bad_content
-					|| tag != DbType::INVALID) {
-
-				// Remove this tag
-				title = title.erase(open_pos, len);
-				pos -= len;
-				delete_tag = false;
-				continue;
-			}
-
-			int start_substr = 0;
-
-			for (auto prefix : bad_prefix) {
-				if (content.size() <= start_substr + prefix.size() + 1)
-					break;
-
-				// Strip "minetest" prefixes
-				if (content.substr(start_substr, prefix.size()) == prefix)
-					start_substr += prefix.size();
-
-				// Strip leftover '-', '_'
-				char first = content[start_substr];
-				if (first == '_' || first == '-')
-					start_substr++;
-			}
-
-			if (start_substr == 0) {
-				// Everything fine, nothing to replace
-				*mod_name = content;
-			} else {
-				// Replace this tag with the proper name
-				*mod_name = content.substr(start_substr);
-				title = title.erase(open_pos + 1, start_substr);
-				pos -= start_substr;
-			}
-
-			delete_tag = false;
-			continue;
-		}
-
-		// Mark [v1.0] tags for deletion
-		if (opened && MODNAME_ALLOWED_CHARS.rfind(cur) == std::string::npos) {
-			delete_tag = true;
-		}
+	if (!err.empty()) {
+		// Topic is dead. Remove mod.
+		data->type = DbType::INVALID;
+		WARN("Dead mod: " << mod_name);
+		return;
 	}
 
-	// Trim double whitespaces
-	bool was_space = false;
-	pos = 0;
+	// "//div[@class='postbody']"
+	// ".//a[@class='postlink']"
 
-	for (size_t i = 0; i < title.size(); i++) {
-		char cur = title[i];
-		bool is_space = std::isspace(cur);
-		if (was_space && is_space)
-			continue;
+	auto post_nodes = html.getNodesByKeyValue(NULL, "class", "postbody");
+	auto link_nodes = html.getNodesByKeyValue(post_nodes->list[0], "class", "postlink");
 
-		if (is_space && i == title.size() - 1)
-			continue; // Tailing space
-
-		was_space = is_space;
-		title[pos] = cur;
-		pos++;
+	if (link_nodes->length == 0) {
+		LOG("No download links found.");
+		return;
 	}
 
-	title.resize(pos);
-	return title;
+	std::string author_l = data->author;
+	for (char &c : author_l)
+		c = tolower(c);
+	std::string title_l = data->title;
+	for (char &c : title_l)
+		c = tolower(c);
+	
+
+	std::string link;
+	int quality = 0; // 0 to 10
+
+	FOR_COLLECTION(link_nodes, link_node, {
+		std::string url_raw = html.getAttribute(link_node, "href");
+		std::string text = html.getText(link_node);
+
+		if (url_raw.size() < 10 || url_raw == link)
+			continue;
+		if (!link.empty() && url_raw.rfind(link) != std::string::npos)
+			continue; // Already checked
+
+		if (url_raw[url_raw.size() - 1] == '/')
+			url_raw = url_raw.erase(url_raw.size() - 1);
+
+		std::string url_new;
+		int priority = check_link_pattern(url_raw, &url_new);
+
+		// Weight the link to find the best matching
+		std::string url_l = url_new;
+		for (char &c : url_l) {
+			if (c == '-')
+				c = '_';
+			else
+				c = towlower(c);
+		}
+	
+		if (!mod_name.empty() && url_l.rfind(mod_name) != std::string::npos)
+			priority += 3;
+		if (!author_l.empty() && url_l.rfind(author_l) != std::string::npos)
+			priority++;
+		if (!title_l.empty() && url_l.rfind(title_l) != std::string::npos)
+			priority += 10;
+
+		if (priority > quality) {
+			if (is_link_reachable(&url_new)) {
+				// Best link so far. Take it.
+				link = url_new;
+				quality = priority;
+			}
+		} else if (priority == quality) {
+			link.clear(); // No clear match
+		}
+	
+		VERBOSE("Link prio="  << priority << ", url=" << url_new);
+	})
+
+	// Can't be worse than empty
+	data->link = link;
 }
 
 void fetch_topic_list(Subforum subforum, int page)
@@ -321,17 +322,19 @@ void fetch_topic_list(Subforum subforum, int page)
 			ERROR("Invalid topic data");
 			return;
 		}
+
 		// "link" is yet not filled in
 
+		topic.type = type;
 		topic.title = escape_xml(topic.title);
 
 		if (type != DbType::INVALID && subforum != Subforum::OLD_MODS) {
 			// Fetch topics, get download/source links
-			//fetch_single_topic(mod_name, *topic);
+			fetch_single_topic(mod_name, &topic);
 		}
 
+		// Processing is done. Add to queue-
 		topic.dump(&std::cout);
-
 		new_topic_data.push(topic);
 	})
 	LOG("Done");
@@ -365,7 +368,7 @@ void unittest()
 		//html.dump(&std::cout, nodes);
 	}
 
-	{
+	if (0) {
 		HTML html;
 		std::string err = download_page(html, "viewforum_50.html");
 		ASSERT(err.empty(), err);
@@ -385,9 +388,46 @@ void unittest()
 		
 		//ASSERT(nodes->length >= 1, "No forumbg");
 	}
+
+	if (0) {
+		std::string url = "https://example.com";
+		bool ok = is_link_reachable(&url);
+		ASSERT(ok, "Cannot connect");
+
+		// Redirect check
+		url = "https://tinyurl.com/phjec9xk";
+		ok = is_link_reachable(&url);
+		ASSERT(ok, "Cannot connect");
+		ASSERT(url == "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "broken link?");
+
+		// Unreachable websites
+		url = "https://looolcathost/";
+		ok = is_link_reachable(&url);
+		ASSERT(!ok, "Website is reachable");
+	}
+
+	if (0) {
+		TopicData topic;
+		topic.topic_id = 9019;
+		fetch_single_topic("farming", &topic);
+		ASSERT(topic.link == "https://notabug.org/TenPlus1/Farming", "wrong link matched");
+
+		topic.topic_id = 9196;
+		topic.author = "VanessaE";
+		topic.title = "Dreambuilder";
+		fetch_single_topic("", &topic);
+		ASSERT(topic.link.empty() || topic.link == "https://github.com/mt-mods/dreambuilder_game", "wrong link matched");
+	}
+
+	{
+		TopicData topic;
+		topic.topic_id = 13700;
+		fetch_single_topic("aftermath", &topic);
+		ASSERT(topic.link == "https://github.com/maikerumine/aftermath", "wrong link matched");
+	}
+
 	LOG("Unittests passed!");
 }
-
 
 void exit_main()
 {
@@ -402,5 +442,6 @@ int main()
 
 	//unittest();
 	fetch_topic_list(Subforum::REL_GAMES, 1);
+	
     return 0;
 }

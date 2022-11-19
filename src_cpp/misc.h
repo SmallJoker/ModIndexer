@@ -24,8 +24,11 @@ enum class DbType : int {
 	REL_GAME = 6,
 	WIP_GAME = 7,
 	REL_CSM  = 8,
-	WIP_CSM  = 9
+	WIP_CSM  = 9,
+	INVALID_MAX
 };
+
+extern const char *DBTYPE2STR[(int)DbType::INVALID_MAX];
 
 struct TopicData {
 	int topic_id = 0, author_id = 0;
@@ -37,11 +40,11 @@ struct TopicData {
 		*os
 			<< " * Topic (tid=" << topic_id << "): \"" << title << "\" by " << author << " (uid=" << author_id << ")"
 			<< "\n   Link: " << link
-			<< "\n   Type: " << (int)type
+			<< "\n   Type: " << DBTYPE2STR[(int)type]
 			<< std::endl;
 	}
 };
-
+#include "lib/logger.h"
 static DbType tag_to_rel_dbtype(std::string text)
 {
 	const struct Entry {
@@ -71,38 +74,4 @@ static DbType tag_to_rel_dbtype(std::string text)
 	}
 
 	return DbType::INVALID;
-}
-
-// Convert special characters to HTML code
-static std::string escape_xml(std::string text)
-{
-	const char      fromChr[] = { '"', '\'', '\\', '{', '}', '|', '%', ':', '<', '>' };
-	const std::string toStr[] = { "&quot;", "&#39;", "&#92;", "&#123;", "&#125;", "&#124;", "&#37;", "&#58;", "&lt;", "&gt;" };
-	std::stringstream ss;
-
-	bool was_space = true;
-	for (char cur : text) {
-		bool is_space = std::isspace(cur);
-		if (was_space && is_space)
-			continue; // trim repeated spaces
-
-		// Cut off non-ASCII
-		if ((int)cur > 0xFF)
-			continue;
-
-		bool found = false;
-		for (size_t k = 0; k < sizeof(fromChr); k++) {
-			if (cur == fromChr[k]) {
-				ss << toStr[k];
-				found = true;
-				break;
-			}
-		}
-
-		was_space = is_space;
-		if (!found)
-			ss << cur;
-	}
-
-	return ss.str();
 }

@@ -18,6 +18,8 @@ public:
 	bool connect();
 
 	bool send(cstr_t &data) const;
+	long getHTTP_Status() const;
+	std::string getHTTP_URL() const;
 	std::string *popRecv();
 	std::string *popAll();
 
