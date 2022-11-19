@@ -9,9 +9,11 @@ message("--- Setting up ModIndexer")
 ### Libraries
 
 find_package(CURL REQUIRED)
+find_package(jsoncpp REQUIRED)
 set(MYHTML_LIBRARY "" CACHE FILEPATH "Path to libmyhtml.so")
 set(MYHTML_INCLUDE_DIR "" CACHE PATH "Path to include")
 
+get_target_property(JSON_INCLUDE_DIR jsoncpp_lib INTERFACE_INCLUDE_DIRECTORIES)
 
 ### Compiler options
 
@@ -32,12 +34,14 @@ add_subdirectory("${PROJECT_SOURCE_DIR}/lib")
 
 set(SRC_FILES
 	${LIB_FILES}
+	config.cpp
 	main.cpp
 	stringops.cpp
 )
 
 include_directories(
 	${CURL_INCLUDE_DIRS}
+	${JSON_INCLUDE_DIR}
 	"${MYHTML_INCLUDE_DIR}"
 )
 
@@ -48,6 +52,7 @@ add_executable(${PROJECT_NAME} ${SRC_FILES})
 target_link_libraries(
 	${PROJECT_NAME}
 	${CURL_LIBRARIES}
+	jsoncpp_lib
 	${CMAKE_DL_LIBS}
 	${MYHTML_LIBRARY}
 )

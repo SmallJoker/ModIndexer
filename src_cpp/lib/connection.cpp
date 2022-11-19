@@ -87,11 +87,6 @@ void Connection::enqueueHTTP_Send(std::string && data)
 {
 	MutexLock _(m_send_queue_lock);
 	m_send_queue.push(std::move(data));
-
-	/*
-	curl_easy_setopt(m_curl, CURLOPT_POSTFIELDSIZE, data.size());
-	curl_easy_setopt(m_curl, CURLOPT_POSTFIELDS, data.c_str()); // not copied!
-	*/
 }
 
 bool Connection::connect()
@@ -116,8 +111,12 @@ bool Connection::connect()
 bool Connection::send(cstr_t &data) const
 {
 	if (!m_connected) {
-		WARN("Connection is dead.");
-		return false;
+		VERBOSE("Connection is dead. Sending as POST");
+
+		curl_easy_setopt(m_curl, CURLOPT_POSTFIELDSIZE, data.size());
+		curl_easy_setopt(m_curl, CURLOPT_POSTFIELDS, data.c_str()); // not copied!
+		//curl_easy_setopt(m_curl, CURLOPT_COPYPOSTFIELDS, 1L);
+		return true;
 	}
 
 	if (data.size() < 255)

@@ -1,9 +1,9 @@
 #include <assert.h>
 #include <fstream>
 #include <iostream>
+#include <json/json.h>
 #include <memory>
 #include <regex>
-#include <string>
 
 #include "misc.h"
 #include "stringops.h"
@@ -12,6 +12,8 @@
 #include "lib/logger.h"
 
 std::queue<TopicData> new_topic_data;
+void upload_changes(std::queue<TopicData> &data);
+
 
 const char *DBTYPE2STR[(int)DbType::INVALID_MAX] = {
 	"invalid0",
@@ -79,7 +81,7 @@ bool is_link_reachable(std::string *url)
 // Analyze topic contents and get link
 void fetch_single_topic(cstr_t &mod_name, TopicData *data)
 {
-	LOG("=== Topic " << data->topic_id << " (" << data->title << ")");
+	LOG("Parse tid=" << data->topic_id << ": " << data->title);
 	sleep_ms(200);
 
 	std::stringstream ss;
@@ -191,10 +193,11 @@ void fetch_topic_list(Subforum subforum, int page)
 	FOR_COLLECTION(dl_nodes, node, {
 		if (!html.nodeKeyContains(node, "class", "row-item")
 				|| html.nodeKeyContains(node, "class", "global", false)
-				|| html.nodeKeyContains(node, "class", "sticky", false)) {
+				|| html.nodeKeyContains(node, "class", "sticky", false)
+				|| html.nodeKeyContains(node, "class", "announce", false)) {
 			// Ignore announcements and sticky topics
 			
-			LOG("Ignored " << html.getAttribute(node, "class"));
+			//LOG("Ignored " << html.getAttribute(node, "class"));
 			continue;
 		}
 
@@ -224,8 +227,11 @@ void fetch_topic_list(Subforum subforum, int page)
 
 		{
 			// Author name
+			// Sometimes there's "display: none" tag floating around....
+			auto poster_div_nodes = html.getNodesByKeyValue(node, "class", "topic-poster");
+
 			// Links may have the class "username" or "username-colored"
-			auto poster_node = html.getNodesByKeyValue(node, "class", "username", false)->list[0];
+			auto poster_node = html.getNodesByKeyValue(poster_div_nodes->list[0], "class", "username", false)->list[0];
 			topic.author = html.getText(poster_node);
 
 			// Author ID
@@ -434,14 +440,60 @@ void exit_main()
 	LOG("Shutting down...");
 }
 
-int main()
+int main(int argc, char *argv[])
 {
 	atexit(exit_main);
 	g_logger = new Logger();
 	g_logger->setLogLevels(LL_NORMAL);
 
-	//unittest();
-	fetch_topic_list(Subforum::REL_GAMES, 1);
+	if (argc >= 4) {
+		// 1: subforum
+		// 2: page start
+		// 3: page end
+
+		const struct {
+			Subforum subforum;
+			const char *name;
+		} subforums[] = {
+			{ Subforum::REL_MODS,  "rel mods" },
+			{ Subforum::WIP_MODS,  "wip mods" },
+			{ Subforum::REL_GAMES, "rel games" },
+			{ Subforum::WIP_GAMES, "wip games" },
+			{ Subforum::OLD_MODS,  "old mods" },
+			{ Subforum::CSM_MODS,  "csm" },
+		};
+
+		Subforum subforum = Subforum::INVALID;
+		for (auto v : subforums) {
+			if (strequalsi(argv[1], v.name)) {
+				subforum = v.subforum;
+				break;
+			}
+		}
+		ASSERT(subforum != Subforum::INVALID, "Unknown subforum name: " << argv[1]);
+
+		int page_start = 0;
+		sscanf(argv[2], "%i", &page_start);
+		page_start = std::max(1, page_start);
+
+		int page_end = page_start;
+		sscanf(argv[3], "%i", &page_end);
+		page_end = std::max(page_start, page_end);
+
+		LOG("Parsing " << (int)subforum << " pages " << page_start << " -> " << page_end);
+		for (int i = page_start; i <= page_end; ++i) {
+			LOG("Page " << i << " / " << page_end);
+			fetch_topic_list(subforum, i);
+		}
+		upload_changes(new_topic_data);
+	}
+
+	if (0) {
+		unittest();
+		
+		fetch_topic_list(Subforum::REL_GAMES, 1);
+		//upload_changes(new_topic_data);
+	}
 	
     return 0;
 }

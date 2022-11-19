@@ -44,34 +44,3 @@ struct TopicData {
 			<< std::endl;
 	}
 };
-#include "lib/logger.h"
-static DbType tag_to_rel_dbtype(std::string text)
-{
-	const struct Entry {
-		const char *text;
-		const DbType type;
-	} LUT[] = {
-		{ "mod", DbType::REL_MOD },
-		{ "mod pack", DbType::REL_MP },
-		{ "modpack", DbType::REL_MP },
-		{ "game", DbType::REL_GAME },
-		{ "csm", DbType::REL_CSM },
-		{ "clientmod", DbType::REL_CSM },
-		{ "client mod", DbType::REL_CSM },
-		{ "(client)mod", DbType::REL_CSM },
-		{ "client-side mod", DbType::REL_CSM }
-	};
-	for (char &c : text)
-		c = tolower(c);
-
-	// old* -> mark as old mod
-	if (text.rfind("old") == 0)
-		return DbType::OLD_MOD;
-
-	for (auto e : LUT) {
-		if (text == e.text)
-			return e.type;
-	}
-
-	return DbType::INVALID;
-}

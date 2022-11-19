@@ -3,6 +3,8 @@
 #include "lib/types.h"
 #include "misc.h"
 
+DbType tag_to_rel_dbtype(std::string text);
+
 std::string parse_title(std::string title, std::string *mod_name, DbType *mod_tag);
 
 // Search for Git URLs and return a weight value
