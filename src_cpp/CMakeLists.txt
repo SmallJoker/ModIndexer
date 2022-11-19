@@ -9,7 +9,8 @@ message("--- Setting up ModIndexer")
 ### Libraries
 
 find_package(CURL REQUIRED)
-find_package(pugixml REQUIRED)
+set(MYHTML_LIBRARY "" CACHE FILEPATH "Path to libmyhtml.so")
+set(MYHTML_INCLUDE_DIR "" CACHE PATH "Path to include")
 
 
 ### Compiler options
@@ -36,7 +37,7 @@ set(SRC_FILES
 
 include_directories(
 	${CURL_INCLUDE_DIRS}
-	pugixml
+	"${MYHTML_INCLUDE_DIR}"
 )
 
 
@@ -45,7 +46,7 @@ include_directories(
 add_executable(${PROJECT_NAME} ${SRC_FILES})
 target_link_libraries(
 	${PROJECT_NAME}
-	PRIVATE ${CURL_LIBRARIES}
-	PRIVATE ${CMAKE_DL_LIBS}
-	PUBLIC pugixml
+	${CURL_LIBRARIES}
+	${CMAKE_DL_LIBS}
+	${MYHTML_LIBRARY}
 )

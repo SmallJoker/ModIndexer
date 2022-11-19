@@ -2,35 +2,48 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
-#include <pugixml.hpp>
 #include <regex>
 #include <string>
 
 #include "misc.h"
 #include "lib/connection.h"
+#include "lib/html.h"
 #include "lib/logger.h"
 
-Subforum subforum = Subforum::INVALID;
+std::queue<TopicData> new_topic_data;
 
 
-std::string parse_page(pugi::xpath_node_set &nodes, std::string url, std::string xpath)
+std::string download_page(HTML &html, std::string url)
 {
-	std::unique_ptr<Connection> con(Connection::createHTTP("GET", url));
-	con->connect();
+	std::ifstream is(url); // If file exists
+	std::string *text_ptr;
+	if (is.good()) {
+		VERBOSE("Reading file " << url);
+		is.seekg(0, is.end);
+		size_t length = is.tellg();
+		is.seekg(0, is.beg);
 
-	std::unique_ptr<std::string> text(con->popAll());
+		text_ptr = new std::string(length, '\0');
+		is.read(&(*text_ptr)[0], length);
+		is.close();
+	} else {
+		// Download from web
+		VERBOSE("Downloading " << url);
+		std::unique_ptr<Connection> con(Connection::createHTTP("GET", url));
+		con->connect();
+		text_ptr = con->popAll();
+	}
+
+	std::unique_ptr<std::string> text(text_ptr);
 	if (!text)
 		return "File download failed";
 
-	pugi::xml_document doc;
-	pugi::xml_parse_result result = doc.load_buffer_inplace(&(*text)[0], text->size());
+	//VERBOSE("Got " << *text);
 
-	if (!result)
-		return std::string("XML parser failed: ") + result.description();
+	mystatus_t ok = myhtml_parse(*html, MyENCODING_UTF_8, text->c_str(), text->size());
 
-	nodes = doc.select_nodes(xpath.c_str());
-	if (nodes.empty())
-		return "Cannot find any nodes in " + xpath;
+	if (MyHTML_FAILED(ok))
+		return std::string("XML parser failed: ") + std::to_string(ok);
 
 	// Good
 	return "";
@@ -151,7 +164,7 @@ std::string parse_title(std::string title, std::string *mod_name, DbType *mod_ta
 	return title;
 }
 
-void fetch_topic_list(int page)
+void fetch_topic_list(Subforum subforum, int page)
 {
 	LOG("Forum " << (int)subforum << " - Page " << page);
 
@@ -159,52 +172,70 @@ void fetch_topic_list(int page)
 	ss << "https://forum.minetest.net/viewforum.php?f=" << (int)subforum;
 	ss << "&start=" << ((page - 1) * 30);
 
-	pugi::xpath_node_set body_node;
-	std::string err = parse_page(body_node,
-		 ss.str(), "//div[@class='forumbg']/.//li[contains(@class, 'row')]");
+	HTML html;
+	std::string err = download_page(html, ss.str());
+	// "//div[@class='forumbg']/.//li[contains(@class, 'row')]"
 
 	if (!err.empty()) {
 		WARN(err);
 		return;
 	}
 
-	std::regex regex_topic("t=(\\d+)");
-	std::regex regex_author("u=(\\d+)");
+	std::regex regex_topic(".*t=([0-9]+).*");
+	std::regex regex_author(".*u=([0-9]+).*");
 
-	for (auto &topic_node : body_node) {
-		{
-			// Ignore sticky posts and announcements
-			std::string classes = topic_node.node().attribute("class").as_string();
-			if (classes.rfind("sticky") != std::string::npos
-					|| classes.rfind("announce") != std::string::npos)
-				continue;
+	auto dl_nodes = html.getNodes(NULL, "dl");
+	ASSERT(dl_nodes->length >= 1, "no <dl> found");
+
+	FOR_COLLECTION(dl_nodes, node, {
+		if (!html.nodeKeyContains(node, "class", "row-item")
+				|| html.nodeKeyContains(node, "class", "global", false)
+				|| html.nodeKeyContains(node, "class", "sticky", false)) {
+			// Ignore announcements and sticky topics
+			
+			LOG("Ignored " << html.getAttribute(node, "class"));
+			continue;
 		}
 
 		TopicData topic;
 
 		{
 			// Topic title
-			auto title_node = topic_node.node().select_node(".//a[@class='topictitle']");
-			topic.title = title_node.node().text().as_string();
+			auto title_nodes = html.getNodesByKeyValue(node, "class", "topictitle");
+			if (title_nodes->length < 1)
+				continue;
+	
+			auto title_node = title_nodes->list[0];
+			topic.title = html.getText(title_node);
+
+			VERBOSE("Title: " << topic.title);
 
 			// Topic ID
-			std::string link = title_node.node().attribute("href").as_string();
+			std::string link = html.getAttribute(title_node, "href");
 			std::smatch match;
 			if (std::regex_match(link, match, regex_topic))
 				topic.topic_id = std::atoi(match.str(1).c_str());
+			else
+				WARN("No match");
+
+			VERBOSE("Link: " << link << " -> id=" << topic.topic_id);
 		}
 
 		{
 			// Author name
 			// Links may have the class "username" or "username-colored"
-			auto author_node = topic_node.node().select_node(".//div[contains(@class, 'topic-poster')]/a");
-			topic.author = author_node.node().text().as_string();
+			auto poster_node = html.getNodesByKeyValue(node, "class", "username", false)->list[0];
+			topic.author = html.getText(poster_node);
 
 			// Author ID
-			std::string link = author_node.node().attribute("href").as_string();
+			std::string link = html.getAttribute(poster_node, "href");
 			std::smatch match;
 			if (std::regex_match(link, match, regex_author))
 				topic.author_id = std::atoi(match.str(1).c_str());
+			else
+				WARN("No match");
+
+			VERBOSE("Autor: " << topic.author << " -> id=" << topic.author_id);
 		}
 
 		if (topic.title.size() < 10)
@@ -290,29 +321,70 @@ void fetch_topic_list(int page)
 			ERROR("Invalid topic data");
 			return;
 		}
+		// "link" is yet not filled in
 
 		topic.title = escape_xml(topic.title);
 
 		if (type != DbType::INVALID && subforum != Subforum::OLD_MODS) {
 			// Fetch topics, get download/source links
-			//FetchSingleTopic(mod_name, ref info);
+			//fetch_single_topic(mod_name, *topic);
 		}
 
 		topic.dump(&std::cout);
 
-		//update_data.Add(info);
-	}
-
+		new_topic_data.push(topic);
+	})
+	LOG("Done");
 }
 
 void unittest()
 {
-	std::string mod_name;
-	DbType type;
-	parse_title("[Mod] Farming Redo [1.47] [farming]", &mod_name, &type);
-	assert(mod_name == "farming");
-	assert(type == DbType::REL_MOD);
+	g_logger->setLogLevels(LL_VERBOSE);
+	{
+		// parse_title()
+		std::string mod_name;
+		DbType type;
+		parse_title("[Mod] Farming Redo [1.47] [farming]", &mod_name, &type);
+		assert(mod_name == "farming");
+		assert(type == DbType::REL_MOD);
+	
+		parse_title("[Game] Inside The Box SE [0.0.4] (WIP)", &mod_name, &type);
+		assert(mod_name.empty());
+		assert(type == DbType::REL_GAME);
+	}
 
+	if (0) {
+		// download_page()
+		HTML html;
+		std::string err = download_page(html, "https://example.com");
+		ASSERT(err.empty(), err);
+		auto nodes = html.getNodes(NULL, "head");
+		ASSERT(nodes->length == 1, "No heads");
+		auto viewports = html.getNodesByKeyValue(nodes->list[0], "name", "viewport");
+		ASSERT(viewports->length == 1, "No nodes");
+		//html.dump(&std::cout, nodes);
+	}
+
+	{
+		HTML html;
+		std::string err = download_page(html, "viewforum_50.html");
+		ASSERT(err.empty(), err);
+
+		// "//div[@class='forumbg']/.//li[contains(@class, 'row')]"
+		auto dl_nodes = html.getNodes(NULL, "dl");
+		ASSERT(dl_nodes->length >= 1, "no <dl> found");
+	
+		FOR_COLLECTION(dl_nodes, node, {
+			if (html.nodeKeyContains(node, "class", "row-item")) {
+				auto topic = html.getNodesByKeyValue(node, "class", "topictitle");
+				html.dump(&std::cout, topic);
+				auto poster = html.getNodesByKeyValue(node, "class", "username");
+				html.dump(&std::cout, poster);
+			}
+		})
+		
+		//ASSERT(nodes->length >= 1, "No forumbg");
+	}
 	LOG("Unittests passed!");
 }
 
@@ -326,7 +398,9 @@ int main()
 {
 	atexit(exit_main);
 	g_logger = new Logger();
+	g_logger->setLogLevels(LL_NORMAL);
 
-	unittest();
+	//unittest();
+	fetch_topic_list(Subforum::REL_GAMES, 1);
     return 0;
 }
