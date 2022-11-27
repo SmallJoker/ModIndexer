@@ -1,14 +1,9 @@
 # Ignore bin and obj directories
 
-bin/
-obj/
 build/
-.vs/
 
 # Ignore local data
 
-*.suo
-*.user
 Config.cs
 config_url.txt
 *.sh
