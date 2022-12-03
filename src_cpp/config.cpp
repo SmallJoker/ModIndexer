@@ -7,6 +7,7 @@
 #include "misc.h"
 #include "lib/logger.h"
 
+// Processes the queue for upload, leaving an empty queue upon completion.
 void upload_changes(std::queue<TopicData> &data)
 {
 	std::ifstream is("config_url.txt");
@@ -51,7 +52,7 @@ void upload_changes(std::queue<TopicData> &data)
 
 	// Updated posts
 	std::unique_ptr<std::string> out(con->popAll());
-	LOG("RECV: " << *out);
+	VERBOSE("RECV: " << *out);
 
 	root.clear();
 	{

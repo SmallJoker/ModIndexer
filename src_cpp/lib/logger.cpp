@@ -33,17 +33,46 @@ void write_datetime(std::ostream *os)
 Logger::Logger()
 {
 	m_sink = new std::ostringstream();
+	m_file = nullptr;
 }
 
 Logger::~Logger()
 {
+	if (m_file) {
+		m_file->flush();
+		delete m_file;
+	}
 	delete m_sink;
+}
+
+void Logger::setupFile(const char *filename)
+{
+	if (m_file) {
+		m_file->flush();
+		delete m_file;
+	}
+
+	std::ofstream *os = new std::ofstream(filename, std::ios::out | std::ios::trunc);
+	m_file = os;
+
+	*os << "====> Logging started: ";
+	write_datetime(os);
+	*os << std::endl;
 }
 
 std::ostream &Logger::getStdout(LogLevel level)
 {
 	if (level >= m_loglevel_stdout)
 		return std::cout;
+
+	m_sink->clear();
+	return *m_sink;
+}
+
+std::ostream &Logger::getFile(LogLevel level)
+{
+	if (level >= m_loglevel_file && m_file)
+		return *m_file;
 
 	m_sink->clear();
 	return *m_sink;
@@ -82,4 +111,5 @@ LoggerAssistant::LoggerAssistant(LogLevel level, const char *func)
 LoggerAssistant::~LoggerAssistant()
 {
 	g_logger->getStdout(m_level) << std::endl;
+	g_logger->getFile(m_level)   << std::endl;
 }

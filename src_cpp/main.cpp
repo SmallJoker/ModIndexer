@@ -345,7 +345,12 @@ void fetch_topic_list(Subforum subforum, int page)
 			continue;
 		}
 
-		topic.dump(&std::cout);
+		{
+			std::stringstream dump;
+			topic.dump(&dump);
+			LoggerAssistant(LL_VERBOSE) << dump.str();
+		}
+	
 		new_topic_data.push(topic);
 	})
 	LOG("Done");
@@ -353,7 +358,7 @@ void fetch_topic_list(Subforum subforum, int page)
 
 void unittest()
 {
-	g_logger->setLogLevels(LL_VERBOSE);
+	g_logger->setLogLevels(LL_VERBOSE, LL_INVALID);
 	{
 		// parse_title()
 		std::string mod_name;
@@ -396,7 +401,7 @@ void unittest()
 				html.dump(&std::cout, poster);
 			}
 		})
-		
+
 		//ASSERT(nodes->length >= 1, "No forumbg");
 	}
 
@@ -449,7 +454,32 @@ int main(int argc, char *argv[])
 {
 	atexit(exit_main);
 	g_logger = new Logger();
-	g_logger->setLogLevels(LL_NORMAL);
+	g_logger->setLogLevels(LL_NORMAL, LL_NORMAL);
+
+	if (argc >= 2 && strequalsi(argv[1], "auto")) {
+		// Automatic parsing
+		const struct {
+			Subforum subforum;
+			int page_start;
+			int page_end;
+		} subforums[] = {
+			{ Subforum::REL_MODS,  1, 5 },
+			{ Subforum::WIP_MODS,  1, 7 },
+			{ Subforum::REL_GAMES, 1, 2 },
+			{ Subforum::WIP_GAMES, 1, 2 },
+			{ Subforum::OLD_MODS,  1, 1 },
+			{ Subforum::CSM_MODS,  1, 1 },
+		};
+		for (auto &e : subforums) {
+			LOG("Parsing " << (int)e.subforum << " pages " << e.page_start << " -> " << e.page_end);
+			for (int i = e.page_start; i <= e.page_end; ++i) {
+				LOG("Page " << i << " / " << e.page_end);
+				fetch_topic_list(e.subforum, i);
+			}
+			upload_changes(new_topic_data);
+		}
+		return 0;
+	}
 
 	if (argc >= 4) {
 		// 1: subforum
