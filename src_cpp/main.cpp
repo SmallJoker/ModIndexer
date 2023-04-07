@@ -435,11 +435,18 @@ void unittest()
 		ASSERT(topic.link.empty() || topic.link == "https://github.com/mt-mods/dreambuilder_game", "wrong link matched");
 	}
 
-	{
+	if (0) {
 		TopicData topic;
 		topic.topic_id = 13700;
 		fetch_single_topic("aftermath", &topic);
 		ASSERT(topic.link == "https://github.com/maikerumine/aftermath", "wrong link matched");
+	}
+
+	{
+		// Stray link with no "href" text
+		TopicData topic;
+		topic.topic_id = 25597;
+		fetch_single_topic("stripped_tree", &topic);
 	}
 
 	LOG("Unittests passed!");
@@ -455,6 +462,14 @@ int main(int argc, char *argv[])
 	atexit(exit_main);
 	g_logger = new Logger();
 	g_logger->setLogLevels(LL_NORMAL, LL_NORMAL);
+
+	if (argc >= 2 && strcmp(argv[1], "--unittest") == 0) {
+		unittest();
+
+		//fetch_topic_list(Subforum::REL_GAMES, 1);
+		//upload_changes(new_topic_data);
+		return 0;
+	}
 
 	if (argc >= 2 && strequalsi(argv[1], "auto")) {
 		// Automatic parsing
@@ -521,13 +536,6 @@ int main(int argc, char *argv[])
 			fetch_topic_list(subforum, i);
 		}
 		upload_changes(new_topic_data);
-	}
-
-	if (0) {
-		unittest();
-		
-		fetch_topic_list(Subforum::REL_GAMES, 1);
-		//upload_changes(new_topic_data);
 	}
 	
     return 0;

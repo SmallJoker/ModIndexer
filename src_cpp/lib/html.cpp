@@ -91,7 +91,7 @@ std::string HTML::getAttribute(myhtml_tree_node_t *node, cstr_t &key)
 		return out;
 
 	auto str = myhtml_attribute_value_string(value);
-	if (str)
+	if (str && str->data)
 		out = str->data;
 
 	return out;
