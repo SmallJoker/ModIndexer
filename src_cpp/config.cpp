@@ -48,7 +48,9 @@ void upload_changes(std::queue<TopicData> &data)
 
 	std::unique_ptr<Connection> con(Connection::createHTTP("POST", url_c));
 	con->send(serialized);
-	con->connect();
+	if (!con->connect(5)) {
+		exit(5);
+	}
 
 	// Updated posts
 	std::unique_ptr<std::string> out(con->popAll());

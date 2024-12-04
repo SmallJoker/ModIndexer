@@ -45,7 +45,7 @@ std::string download_page(HTML &html, std::string url)
 		// Download from web
 		VERBOSE("Downloading " << url);
 		std::unique_ptr<Connection> con(Connection::createHTTP("GET", url));
-		if (!con->connect())
+		if (!con->connect(3))
 			return "Page unreachable";
 		text_ptr = con->popAll();
 	}
@@ -69,7 +69,8 @@ bool is_link_reachable(std::string *url)
 {
 	VERBOSE("Checking " << *url);
 	std::unique_ptr<Connection> con(Connection::createHTTP("HEAD", *url));
-	con->connect();
+	if (!con->connect(1))
+		return false;
 
 	long status_code = con->getHTTP_Status();
 	*url = con->getHTTP_URL();
@@ -85,7 +86,7 @@ void fetch_single_topic(cstr_t &mod_name, TopicData *data)
 	sleep_ms(200);
 
 	std::stringstream ss;
-	ss << "https://forum.minetest.net/viewtopic.php?t=" << data->topic_id;
+	ss << "https://forum.luanti.org/viewtopic.php?t=" << data->topic_id;
 
 	HTML html;
 	std::string err = download_page(html, ss.str());
@@ -114,7 +115,7 @@ void fetch_single_topic(cstr_t &mod_name, TopicData *data)
 	std::string title_l = data->title;
 	for (char &c : title_l)
 		c = tolower(c);
-	
+
 
 	std::string link;
 	int quality = 0; // 0 to 10
@@ -142,7 +143,7 @@ void fetch_single_topic(cstr_t &mod_name, TopicData *data)
 			else
 				c = towlower(c);
 		}
-	
+
 		if (!mod_name.empty() && url_l.rfind(mod_name) != std::string::npos)
 			priority += 3;
 		if (!author_l.empty() && url_l.rfind(author_l) != std::string::npos)
@@ -159,7 +160,7 @@ void fetch_single_topic(cstr_t &mod_name, TopicData *data)
 		} else if (priority == quality) {
 			link.clear(); // No clear match
 		}
-	
+
 		VERBOSE("Link prio="  << priority << ", url=" << url_new);
 	})
 
@@ -172,7 +173,7 @@ void fetch_topic_list(Subforum subforum, int page)
 	LOG("Forum " << (int)subforum << " - Page " << page);
 
 	std::stringstream ss;
-	ss << "https://forum.minetest.net/viewforum.php?f=" << (int)subforum;
+	ss << "https://forum.luanti.org/viewforum.php?f=" << (int)subforum;
 	ss << "&start=" << ((page - 1) * 30);
 
 	HTML html;
@@ -196,7 +197,7 @@ void fetch_topic_list(Subforum subforum, int page)
 				|| html.nodeKeyContains(node, "class", "sticky", false)
 				|| html.nodeKeyContains(node, "class", "announce", false)) {
 			// Ignore announcements and sticky topics
-			
+
 			//LOG("Ignored " << html.getAttribute(node, "class"));
 			continue;
 		}
@@ -208,7 +209,7 @@ void fetch_topic_list(Subforum subforum, int page)
 			auto title_nodes = html.getNodesByKeyValue(node, "class", "topictitle");
 			if (title_nodes->length < 1)
 				continue;
-	
+
 			auto title_node = title_nodes->list[0];
 			topic.title = html.getText(title_node);
 
@@ -350,7 +351,7 @@ void fetch_topic_list(Subforum subforum, int page)
 			topic.dump(&dump);
 			LoggerAssistant(LL_VERBOSE) << dump.str();
 		}
-	
+
 		new_topic_data.push(topic);
 	})
 	LOG("Done");
@@ -366,7 +367,7 @@ void unittest()
 		parse_title("[Mod] Farming Redo [1.47] [farming]", &mod_name, &type);
 		assert(mod_name == "farming");
 		assert(type == DbType::REL_MOD);
-	
+
 		parse_title("[Game] Inside The Box SE [0.0.4] (WIP)", &mod_name, &type);
 		assert(mod_name.empty());
 		assert(type == DbType::REL_GAME);
@@ -392,7 +393,7 @@ void unittest()
 		// "//div[@class='forumbg']/.//li[contains(@class, 'row')]"
 		auto dl_nodes = html.getNodes(NULL, "dl");
 		ASSERT(dl_nodes->length >= 1, "no <dl> found");
-	
+
 		FOR_COLLECTION(dl_nodes, node, {
 			if (html.nodeKeyContains(node, "class", "row-item")) {
 				auto topic = html.getNodesByKeyValue(node, "class", "topictitle");
@@ -537,6 +538,6 @@ int main(int argc, char *argv[])
 		}
 		upload_changes(new_topic_data);
 	}
-	
+
     return 0;
 }

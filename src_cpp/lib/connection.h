@@ -15,8 +15,9 @@ public:
 	void setHTTP_URL(cstr_t &url);
 	void addHTTP_Header(cstr_t &what);
 	void enqueueHTTP_Send(std::string && data);
-	bool connect();
+	bool connect(int attempts);
 
+public:
 	bool send(cstr_t &data) const;
 	long getHTTP_Status() const;
 	std::string getHTTP_URL() const;
