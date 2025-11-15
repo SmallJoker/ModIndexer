@@ -96,9 +96,9 @@ bool Connection::connect(int attempts)
 	while (attempts --> 0) {
 		CURLcode res = curl_easy_perform(m_curl);
 
-		m_connected = (res == CURLE_OK);
 		// CURLE_PARTIAL_FILE is triggered by "HEAD" requests
-		if (!m_connected && res != CURLE_PARTIAL_FILE) {
+		m_connected = (res == CURLE_OK || res == CURLE_PARTIAL_FILE);
+		if (!m_connected) {
 			ERROR("CURL failed: " << curl_easy_strerror(res));
 			if (attempts > 0)
 				sleep_ms(5000);
@@ -109,6 +109,7 @@ bool Connection::connect(int attempts)
 
 		// https://gcc.gnu.org/bugzilla/show_bug.cgi?id=67791
 		//m_thread = new std::thread(recvAsync, this);
+		VERBOSE("curl result=" << res);
 		return m_connected;
 	}
 	return false;

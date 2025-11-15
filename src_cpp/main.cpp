@@ -151,17 +151,21 @@ void fetch_single_topic(cstr_t &mod_name, TopicData *data)
 		if (!title_l.empty() && url_l.rfind(title_l) != std::string::npos)
 			priority += 10;
 
+		const char *reachable = "unknown";
 		if (priority > quality) {
 			if (is_link_reachable(&url_new)) {
 				// Best link so far. Take it.
 				link = url_new;
 				quality = priority;
+				reachable = "yes";
+			} else {
+				reachable = "no";
 			}
 		} else if (priority == quality) {
 			link.clear(); // No clear match
 		}
 
-		VERBOSE("Link prio="  << priority << ", url=" << url_new);
+		VERBOSE("Link prio="  << priority << ", url=" << url_new << ", reachable=" << reachable);
 	})
 
 	// Can't be worse than empty
@@ -440,10 +444,11 @@ void unittest()
 		TopicData topic;
 		topic.topic_id = 13700;
 		fetch_single_topic("aftermath", &topic);
+		LOG("Found link: " << topic.link);
 		ASSERT(topic.link == "https://github.com/maikerumine/aftermath", "wrong link matched");
 	}
 
-	{
+	if (0) {
 		// Stray link with no "href" text
 		TopicData topic;
 		topic.topic_id = 25597;

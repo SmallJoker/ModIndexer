@@ -42,15 +42,14 @@ void upload_changes(std::queue<TopicData> &data)
 	std::string serialized;
 	{
 		Json::FastWriter wr;
-		serialized = wr.write(root);   
+		serialized = wr.write(root);
 	}
-	//LOG("SEND: " << serialized);
+	VERBOSE("SEND entries. count=" << topic_id_to_title.size());
 
 	std::unique_ptr<Connection> con(Connection::createHTTP("POST", url_c));
 	con->send(serialized);
-	if (!con->connect(5)) {
+	if (!con->connect(5))
 		exit(5);
-	}
 
 	// Updated posts
 	std::unique_ptr<std::string> out(con->popAll());
