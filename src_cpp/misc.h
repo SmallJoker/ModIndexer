@@ -34,13 +34,16 @@ struct TopicData {
 	int topic_id = 0, author_id = 0;
 	DbType type = DbType::INVALID;
 	std::string title, author, link;
+	std::string modname;
 
 	void dump(std::ostream *os)
 	{
 		*os
-			<< " * Topic (tid=" << topic_id << "): \"" << title << "\" by " << author << " (uid=" << author_id << ")"
-			<< "\n   Link: " << link
-			<< "\n   Type: " << DBTYPE2STR[(int)type]
+			<< " * Topic (tid=" << topic_id << "): \"" << title << "\""
+			<< "\n   Modname: " << modname
+			<< "\n   Author:  " << author << " (uid=" << author_id << ")"
+			<< "\n   Link:    " << link
+			<< "\n   Type:    " << DBTYPE2STR[(int)type]
 			<< std::endl;
 	}
 };

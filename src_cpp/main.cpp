@@ -80,7 +80,7 @@ bool is_link_reachable(std::string *url)
 }
 
 // Analyze topic contents and get link
-void fetch_single_topic(cstr_t &mod_name, TopicData *data)
+void fetch_single_topic(TopicData *data)
 {
 	LOG("Parse tid=" << data->topic_id << ": " << data->title);
 	sleep_ms(200);
@@ -94,7 +94,7 @@ void fetch_single_topic(cstr_t &mod_name, TopicData *data)
 	if (!err.empty()) {
 		// Topic is dead. Remove mod.
 		data->type = DbType::INVALID;
-		WARN("Dead mod: " << mod_name);
+		WARN("Dead mod: " << data->modname);
 		return;
 	}
 
@@ -144,7 +144,7 @@ void fetch_single_topic(cstr_t &mod_name, TopicData *data)
 				c = towlower(c);
 		}
 
-		if (!mod_name.empty() && url_l.rfind(mod_name) != std::string::npos)
+		if (!data->modname.empty() && url_l.rfind(data->modname) != std::string::npos)
 			priority += 3;
 		if (!author_l.empty() && url_l.rfind(author_l) != std::string::npos)
 			priority++;
@@ -172,16 +172,111 @@ void fetch_single_topic(cstr_t &mod_name, TopicData *data)
 	data->link = link;
 }
 
-void fetch_topic_list(Subforum subforum, int page)
+void get_dbtype_from_subforum(DbType &type, Subforum subforum)
 {
-	LOG("Forum " << (int)subforum << " - Page " << page);
+	switch (type) {
+	case DbType::REL_MOD:
+		switch (subforum) {
+		case Subforum::REL_MODS:
+			// Ok.
+			break;
+		case Subforum::WIP_MODS:
+			type = DbType::WIP_MOD;
+			break;
+		case Subforum::OLD_MODS:
+			type = DbType::OLD_MOD;
+			break;
+		default:
+			LOG("Found a mod in the wrong forum");
+			break;
+		}
+		break;
+	case DbType::REL_MP:
+		switch (subforum) {
+		case Subforum::REL_MODS:
+			// Ok.
+			break;
+		case Subforum::WIP_MODS:
+			type = DbType::WIP_MP;
+			break;
+		case Subforum::OLD_MODS:
+			type = DbType::OLD_MOD;
+			break;
+		default:
+			LOG("Found a modpack in the wrong forum");
+			break;
+		}
+		break;
+	case DbType::REL_GAME:
+		switch (subforum) {
+		case Subforum::REL_GAMES:
+			// Ok.
+			break;
+		case Subforum::WIP_GAMES:
+		case Subforum::WIP_MODS:
+			type = DbType::WIP_GAME;
+			break;
+		//case Subforum::OLD_GAMES: // TODO
+		case Subforum::OLD_MODS:
+			type = DbType::OLD_MOD;
+			break;
+		default:
+			LOG("Found a game in the wrong forum");
+			break;
+		}
+		break;
+	case DbType::REL_CSM:
+		switch (subforum) {
+		case Subforum::CSM_MODS:
+			// Ok.
+			break;
+		case Subforum::WIP_MODS:
+			type = DbType::WIP_CSM;
+			break;
+		case Subforum::OLD_MODS:
+			type = DbType::OLD_MOD;
+			break;
+		default:
+			LOG("Found a CSM in the wrong place");
+			break;
+		}
+		break;
+	default:
+			// OK
+			break;
+	}
+}
+
+Subforum get_forum_from_url(cstr_t &url)
+{
+	const std::string needle = "viewforum.php?f=";
+	int forum_id = 0;
+	auto pos = url.rfind(needle);
+	if (pos == std::string::npos)
+		return Subforum::INVALID;
+
+	if (sscanf(url.substr(pos + needle.size()).c_str(), "%i", &forum_id) != 1)
+		return Subforum::INVALID;
+
+	return (Subforum)forum_id;
+}
+
+void fetch_any_list(Subforum subforum_in, cstr_t &list_url);
+
+void fetch_topic_list(Subforum subforum_in, int page)
+{
+	LOG("Forum " << (int)subforum_in << " - Page " << page);
 
 	std::stringstream ss;
-	ss << "https://forum.luanti.org/viewforum.php?f=" << (int)subforum;
+	ss << "https://forum.luanti.org/viewforum.php?f=" << (int)subforum_in;
 	ss << "&start=" << ((page - 1) * 30);
+	fetch_any_list(subforum_in, ss.str());
+}
 
+void fetch_any_list(Subforum subforum_in, cstr_t &list_url)
+{
 	HTML html;
-	std::string err = download_page(html, ss.str());
+	std::string err = download_page(html, list_url);
 	// "//div[@class='forumbg']/.//li[contains(@class, 'row')]"
 
 	if (!err.empty()) {
@@ -206,6 +301,7 @@ void fetch_topic_list(Subforum subforum, int page)
 			continue;
 		}
 
+		Subforum subforum = subforum_in;
 		TopicData topic;
 
 		{
@@ -234,6 +330,10 @@ void fetch_topic_list(Subforum subforum, int page)
 			// Author name
 			// Sometimes there's "display: none" tag floating around....
 			auto poster_div_nodes = html.getNodesByKeyValue(node, "class", "topic-poster");
+			if (poster_div_nodes->length == 0) {
+				// Search result page
+				poster_div_nodes = html.getNodesByKeyValue(node, "class", "responsive-hide left-box");
+			}
 
 			// Links may have the class "username" or "username-colored"
 			auto poster_node = html.getNodesByKeyValue(poster_div_nodes->list[0], "class", "username", false)->list[0];
@@ -247,87 +347,32 @@ void fetch_topic_list(Subforum subforum, int page)
 			else
 				WARN("No match");
 
-			VERBOSE("Autor: " << topic.author << " -> id=" << topic.author_id);
+			VERBOSE("Author: " << topic.author << " -> id=" << topic.author_id);
+
+			// Find out the subforum ID if not yet known
+			if (subforum == Subforum::INVALID) {
+				// Only present in search result pages
+				auto link_nodes = html.getNodes(poster_div_nodes->list[0], "a");
+				if (link_nodes->length == 2) {
+					std::string link = html.getAttribute(link_nodes->list[1], "href");
+					subforum = get_forum_from_url(link);
+					VERBOSE("Subforum id=" << (int)subforum);
+				}
+			}
+		}
+
+		if (subforum == Subforum::INVALID) {
+			ERROR("Unknown forum type!");
+			continue;
 		}
 
 		if (topic.title.size() < 10)
 			continue;
 
 		DbType type;
-		std::string mod_name;
-		topic.title = parse_title(topic.title, &mod_name, &type);
+		topic.title = parse_title(topic.title, &topic.modname, &type);
 
-		switch (type) {
-		case DbType::REL_MOD:
-			switch (subforum) {
-			case Subforum::REL_MODS:
-				// Ok.
-				break;
-			case Subforum::WIP_MODS:
-				type = DbType::WIP_MOD;
-				break;
-			case Subforum::OLD_MODS:
-				type = DbType::OLD_MOD;
-				break;
-			default:
-				LOG("Found a mod in the wrong forum");
-				break;
-			}
-			break;
-		case DbType::REL_MP:
-			switch (subforum) {
-			case Subforum::REL_MODS:
-				// Ok.
-				break;
-			case Subforum::WIP_MODS:
-				type = DbType::WIP_MP;
-				break;
-			case Subforum::OLD_MODS:
-				type = DbType::OLD_MOD;
-				break;
-			default:
-				LOG("Found a modpack in the wrong forum");
-				break;
-			}
-			break;
-		case DbType::REL_GAME:
-			switch (subforum) {
-			case Subforum::REL_GAMES:
-				// Ok.
-				break;
-			case Subforum::WIP_GAMES:
-			case Subforum::WIP_MODS:
-				type = DbType::WIP_GAME;
-				break;
-			//case Subforum::OLD_GAMES: // TODO
-			case Subforum::OLD_MODS:
-				type = DbType::OLD_MOD;
-				break;
-			default:
-				LOG("Found a game in the wrong forum");
-				break;
-			}
-			break;
-		case DbType::REL_CSM:
-			switch (subforum) {
-			case Subforum::CSM_MODS:
-				// Ok.
-				break;
-			case Subforum::WIP_MODS:
-				type = DbType::WIP_CSM;
-				break;
-			case Subforum::OLD_MODS:
-				type = DbType::OLD_MOD;
-				break;
-			default:
-				LOG("Found a CSM in the wrong place");
-				break;
-			}
-			break;
-		default:
-				// OK
-				break;
-		}
+		get_dbtype_from_subforum(type, subforum);
 
 		if (topic.topic_id == 0 || topic.author_id == 0 || topic.author.empty()) {
 			ERROR("Invalid topic data");
@@ -341,7 +386,7 @@ void fetch_topic_list(Subforum subforum, int page)
 
 		if (type != DbType::INVALID && subforum != Subforum::OLD_MODS) {
 			// Fetch topics, get download/source links
-			fetch_single_topic(mod_name, &topic);
+			fetch_single_topic(&topic);
 		}
 
 		// Processing is done. Add to queue.
@@ -430,20 +475,23 @@ void unittest()
 	if (0) {
 		TopicData topic;
 		topic.topic_id = 9019;
-		fetch_single_topic("farming", &topic);
+		topic.modname = "farming";
+		fetch_single_topic(&topic);
 		ASSERT(topic.link == "https://notabug.org/TenPlus1/Farming", "wrong link matched");
 
 		topic.topic_id = 9196;
 		topic.author = "VanessaE";
 		topic.title = "Dreambuilder";
-		fetch_single_topic("", &topic);
+		topic.modname = "";
+		fetch_single_topic( &topic);
 		ASSERT(topic.link.empty() || topic.link == "https://github.com/mt-mods/dreambuilder_game", "wrong link matched");
 	}
 
 	if (0) {
 		TopicData topic;
 		topic.topic_id = 13700;
-		fetch_single_topic("aftermath", &topic);
+		topic.modname = "aftermath";
+		fetch_single_topic(&topic);
 		LOG("Found link: " << topic.link);
 		ASSERT(topic.link == "https://github.com/maikerumine/aftermath", "wrong link matched");
 	}
@@ -452,7 +500,8 @@ void unittest()
 		// Stray link with no "href" text
 		TopicData topic;
 		topic.topic_id = 25597;
-		fetch_single_topic("stripped_tree", &topic);
+		topic.modname = "stripped_tree";
+		fetch_single_topic(&topic);
 	}
 
 	LOG("Unittests passed!");
@@ -499,6 +548,13 @@ int main(int argc, char *argv[])
 			}
 			upload_changes(new_topic_data);
 		}
+		return 0;
+	}
+
+	if (argc >= 3 && strequalsi(argv[1], "fromlisting")) {
+		LOG("Parsing " << argv[2]);
+		fetch_any_list(Subforum::INVALID, argv[2]);
+		upload_changes(new_topic_data);
 		return 0;
 	}
 
