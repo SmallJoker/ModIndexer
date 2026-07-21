@@ -53,6 +53,8 @@ void upload_changes(std::queue<TopicData> &data)
 
 	// Updated posts
 	std::unique_ptr<std::string> out(con->popAll());
+	ASSERT(out, "NO RESPONSE for: " << serialized << "\n Did I forget to install SQLite?");
+
 	VERBOSE("RECV: " << *out);
 
 	root.clear();
